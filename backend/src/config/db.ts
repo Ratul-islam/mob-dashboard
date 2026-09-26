@@ -48,19 +48,41 @@ function migrationsFolder() {
 /** Makes sure the database exists, then applies pending migrations from /drizzle. */
 export async function connectDB() {
   try {
-    await ensureDatabase();
+    console.log("Testing MySQL connection...");
 
-    await migrate(db, { migrationsFolder: migrationsFolder() });
+    const [rows] = await pool.query("SELECT 1 AS ok");
+    console.log("MySQL SELECT test:", rows);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS __drizzle_test (
+        id INT NOT NULL AUTO_INCREMENT,
+        test_value TEXT NOT NULL,
+        PRIMARY KEY (id)
+      )
+    `);
+
+    console.log("MySQL CREATE TABLE test: OK");
+
+    await pool.query("DROP TABLE IF EXISTS __drizzle_test");
+
+    console.log("MySQL connection and permissions are OK");
+
+    await migrate(db, {
+      migrationsFolder: migrationsFolder(),
+    });
+
     console.log("MySQL connected and migrated");
-  } catch (err:any) {
-  console.error("MySQL connection/migration failed");
-  console.error("code:", err?.code);
-  console.error("errno:", err?.errno);
-  console.error("sqlState:", err?.sqlState);
-  console.error("sqlMessage:", err?.sqlMessage);
-  console.error("message:", err?.message);
-  console.error(err);
-  process.exit(1);
+  } catch (err: any) {
+    console.error("========== MYSQL DEBUG ==========");
+    console.error("name:", err?.name);
+    console.error("code:", err?.code);
+    console.error("errno:", err?.errno);
+    console.error("sqlState:", err?.sqlState);
+    console.error("sqlMessage:", err?.sqlMessage);
+    console.error("message:", err?.message);
+    console.error("stack:", err?.stack);
+    console.error("=================================");
+    process.exit(1);
   }
 }
 
