@@ -1,7 +1,7 @@
 {
   "version": "5",
   "dialect": "mysql",
-  "id": "7d6c6c87-e643-40d3-898b-266abe1d90aa",
+  "id": "3bda6c90-9909-4d26-8975-bc90841f0100",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "users": {
@@ -23,7 +23,7 @@
         },
         "email": {
           "name": "email",
-          "type": "varchar(255)",
+          "type": "varchar(191)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
@@ -61,7 +61,7 @@
         },
         "credentials_changed_at": {
           "name": "credentials_changed_at",
-          "type": "datetime(3)",
+          "type": "datetime",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -177,7 +177,7 @@
         },
         "columns": {
           "name": "columns",
-          "type": "json",
+          "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false

@@ -23,6 +23,12 @@ export const generatePassword = (length = 14) => {
 
 const normalizeEmail = (email: string) => email.toLowerCase().trim();
 
+/**
+ * JWTs record "iat" in whole seconds and older MySQL versions store DATETIME in whole seconds,
+ * so credential-change times are truncated to the second to compare cleanly with token issue times.
+ */
+const wholeSecondNow = () => new Date(Math.floor(Date.now() / 1000) * 1000);
+
 const { password: _password, ...publicColumns } = getTableColumns(users);
 
 export function getUser(query: Query, withPassword: true): Promise<UserRow | null>;
@@ -83,7 +89,7 @@ export const setPassword = async (user: UserRecord, password: string, mustChange
   const patch = {
     password: await hashPassword(password),
     mustChangePassword,
-    credentialsChangedAt: new Date(),
+    credentialsChangedAt: wholeSecondNow(),
   };
   await updateUser(user.id, patch);
   Object.assign(user, { mustChangePassword, credentialsChangedAt: patch.credentialsChangedAt });
@@ -100,7 +106,7 @@ export const updateUserProfile = async (user: UserRecord, input: { name?: string
       .limit(1);
     if (taken) throw new AppError("A user with this email already exists", 409);
     patch.email = email;
-    patch.credentialsChangedAt = new Date();
+    patch.credentialsChangedAt = wholeSecondNow();
   }
   if (input.name) patch.name = input.name.trim();
 

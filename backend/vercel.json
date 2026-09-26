@@ -1,5 +1,5 @@
 {
   "version": 2,
-  "builds": [{ "src": "src/vercel.ts", "use": "@vercel/node" }],
+  "builds": [{ "src": "src/vercel.ts", "use": "@vercel/node", "config": { "includeFiles": ["drizzle/**"] } }],
   "routes": [{ "src": "/(.*)", "dest": "src/vercel.ts" }]
 }

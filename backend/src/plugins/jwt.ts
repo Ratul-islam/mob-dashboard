@@ -43,7 +43,7 @@ export default fp(async (app) => {
       return sendError(reply, { statusCode: 401, message: "Unauthorized" });
     }
     // Tokens issued before the last credential change are no longer valid.
-    if (user.credentialsChangedAt && payload.iat * 1000 < user.credentialsChangedAt.getTime() - 1000) {
+    if (user.credentialsChangedAt && payload.iat * 1000 < user.credentialsChangedAt.getTime()) {
       return sendError(reply, { statusCode: 401, message: "Session expired" });
     }
 

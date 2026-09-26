@@ -1,19 +1,19 @@
 CREATE TABLE `users` (
 	`id` int AUTO_INCREMENT NOT NULL,
 	`name` varchar(100) NOT NULL,
-	`email` varchar(255) NOT NULL,
+	`email` varchar(191) NOT NULL,
 	`password` varchar(255) NOT NULL,
 	`role` enum('root','user') NOT NULL DEFAULT 'user',
 	`is_active` boolean NOT NULL DEFAULT true,
 	`must_change_password` boolean NOT NULL DEFAULT false,
-	`credentials_changed_at` datetime(3),
+	`credentials_changed_at` datetime,
 	`last_login_at` datetime,
 	`created_by` int,
 	`created_at` datetime NOT NULL,
 	`updated_at` datetime NOT NULL,
 	CONSTRAINT `users_id` PRIMARY KEY(`id`),
 	CONSTRAINT `users_email_unique` UNIQUE(`email`)
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 --> statement-breakpoint
 CREATE TABLE `raw_imports` (
 	`report_id` varchar(64) NOT NULL,
@@ -24,14 +24,14 @@ CREATE TABLE `raw_imports` (
 	`end` int,
 	`status` enum('importing','ready','failed') NOT NULL,
 	`rows` int NOT NULL DEFAULT 0,
-	`columns` json,
+	`columns` text,
 	`error` text,
 	`imported_by` int,
 	`imported_at` datetime,
 	`started_at` datetime NOT NULL,
 	`created_at` datetime NOT NULL,
 	CONSTRAINT `raw_imports_report_id` PRIMARY KEY(`report_id`)
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 --> statement-breakpoint
 CREATE TABLE `raw_rows` (
 	`id` bigint unsigned AUTO_INCREMENT NOT NULL,
@@ -72,7 +72,7 @@ CREATE TABLE `raw_rows` (
 	`additional_data_09` text,
 	`additional_data_10` text,
 	CONSTRAINT `raw_rows_id` PRIMARY KEY(`id`)
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 --> statement-breakpoint
 CREATE TABLE `refresh_tokens` (
 	`id` int AUTO_INCREMENT NOT NULL,
@@ -86,7 +86,7 @@ CREATE TABLE `refresh_tokens` (
 	`created_at` datetime NOT NULL,
 	CONSTRAINT `refresh_tokens_id` PRIMARY KEY(`id`),
 	CONSTRAINT `refresh_tokens_token_hash_unique` UNIQUE(`token_hash`)
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 --> statement-breakpoint
 CREATE TABLE `otps` (
 	`id` int AUTO_INCREMENT NOT NULL,
@@ -95,7 +95,7 @@ CREATE TABLE `otps` (
 	`type` enum('EMAIL_VERIFICATION','PASSWORD_RESET','TWO_FA') NOT NULL,
 	`expires_at` datetime NOT NULL,
 	CONSTRAINT `otps_id` PRIMARY KEY(`id`)
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 --> statement-breakpoint
 ALTER TABLE `raw_imports` ADD CONSTRAINT `raw_imports_imported_by_users_id_fk` FOREIGN KEY (`imported_by`) REFERENCES `users`(`id`) ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE `refresh_tokens` ADD CONSTRAINT `refresh_tokens_user_id_users_id_fk` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE cascade ON UPDATE no action;--> statement-breakpoint

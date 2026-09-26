@@ -6,12 +6,14 @@ export type UserRole = (typeof USER_ROLES)[number];
 export const users = mysqlTable("users", {
   id: int("id").autoincrement().primaryKey(),
   name: varchar("name", { length: 100 }).notNull(),
-  email: varchar("email", { length: 255 }).notNull().unique(),
+  // 191 chars keeps the unique index under MySQL 5.5's 767-byte limit with utf8mb4.
+  email: varchar("email", { length: 191 }).notNull().unique(),
   password: varchar("password", { length: 255 }).notNull(),
   role: mysqlEnum("role", USER_ROLES).notNull().default("user"),
   isActive: boolean("is_active").notNull().default(true),
   mustChangePassword: boolean("must_change_password").notNull().default(false),
-  credentialsChangedAt: datetime("credentials_changed_at", { fsp: 3 }),
+  // Whole seconds (see wholeSecondNow) so it compares exactly with JWT "iat" on any MySQL version.
+  credentialsChangedAt: datetime("credentials_changed_at"),
   lastLoginAt: datetime("last_login_at"),
   createdBy: int("created_by"),
   createdAt: datetime("created_at").notNull().$defaultFn(() => new Date()),

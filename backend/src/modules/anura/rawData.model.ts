@@ -1,16 +1,24 @@
 import {
   bigint,
   boolean,
+  customType,
   datetime,
   index,
   int,
-  json,
   mysqlEnum,
   mysqlTable,
   text,
   varchar,
 } from "drizzle-orm/mysql-core";
 import { users } from "../user/user.model.js";
+
+/** A string array stored as JSON text (MySQL 5.5 has no JSON column type). */
+const jsonText = customType<{ data: string[]; driverData: string }>({
+  dataType: () => "text",
+  toDriver: (value) => JSON.stringify(value),
+  // Databases created before this change use a native JSON column, which mysql2 already parses.
+  fromDriver: (value) => (typeof value === "string" ? JSON.parse(value) : value),
+});
 
 /** Tracks a raw data report that has been pulled from Anura into MySQL. */
 export const rawImports = mysqlTable("raw_imports", {
@@ -22,7 +30,7 @@ export const rawImports = mysqlTable("raw_imports", {
   end: int("end"),
   status: mysqlEnum("status", ["importing", "ready", "failed"]).notNull(),
   rows: int("rows").notNull().default(0),
-  columns: json("columns").$type<string[]>(),
+  columns: jsonText("columns"),
   error: text("error"),
   importedBy: int("imported_by").references(() => users.id, { onDelete: "set null" }),
   importedAt: datetime("imported_at"),

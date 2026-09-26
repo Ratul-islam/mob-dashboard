@@ -27,6 +27,8 @@ const loadConfig = () => {
     COOKIE_SECURE: bool("COOKIE_SECURE", NODE_ENV === "production"),
 
     DATABASE_URL: optional("DATABASE_URL", "mysql://root@localhost:3306/anura_dashboard"),
+    // Hosted/free databases often cap connections per user; lower this if you hit that limit.
+    DB_POOL_SIZE: Number(optional("DB_POOL_SIZE", "5")),
 
     JWT_ACCESS_SECRET: required("JWT_ACCESS_SECRET"),
     JWT_REFRESH_SECRET: required("JWT_REFRESH_SECRET"),

@@ -45,7 +45,7 @@ A private dashboard for Anura traffic quality data:
 ## Requirements
 
 - Node.js 20+ (tested on 22)
-- MySQL 8+. The database is created and migrated automatically on startup.
+- MySQL 5.5 or newer. Tables are created and migrated automatically on startup. On local MySQL the database is created too; hosted databases must already exist.
 
 ## Setup
 
@@ -68,7 +68,8 @@ Sign in at http://localhost:3000 with `ROOT_EMAIL` / `ROOT_PASSWORD`.
 
 | Variable | Required | Notes |
 |---|---|---|
-| `DATABASE_URL` | yes | `mysql://user:pass@localhost:3306/anura_dashboard`. The user needs rights to create the database and tables. |
+| `DATABASE_URL` | yes | `mysql://USER:PASSWORD@HOST:3306/DATABASE`. URL-encode special characters in the password. |
+| `DB_POOL_SIZE` | no | Max DB connections (default 5). Lower it if your host caps connections per user. |
 | `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `JWT_PASS_RESET_SECRET` | yes | Long random strings, e.g. `node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"` |
 | `ROOT_NAME`, `ROOT_EMAIL`, `ROOT_PASSWORD` | first start | Creates the root user only if none exists. A password under 8 characters must be changed at first sign-in. |
 | `ANURA_API_TOKEN` | yes | From https://dashboard.anura.io/api |
