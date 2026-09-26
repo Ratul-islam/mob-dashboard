@@ -1,3 +1,4 @@
+import dns from "node:dns";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -6,11 +7,17 @@ import { drizzle } from "drizzle-orm/mysql2";
 import { migrate } from "drizzle-orm/mysql2/migrator";
 import { getConfig } from "./config.js";
 
+// Some hosts publish an IPv6 address that isn't reachable from every network; try IPv4 first.
+dns.setDefaultResultOrder("ipv4first");
+
+const { db: dbConfig, DB_POOL_SIZE } = getConfig();
+
 // All dates are stored and read as UTC (Anura reports in UTC).
 const pool = mysql.createPool({
-  uri: getConfig().DATABASE_URL,
+  ...dbConfig,
+  connectTimeout: 20_000,
   timezone: "Z",
-  connectionLimit: getConfig().DB_POOL_SIZE,
+  connectionLimit: DB_POOL_SIZE,
   dateStrings: false,
 });
 
@@ -21,13 +28,11 @@ export const db = drizzle({ client: pool });
  * exist already and forbid CREATE DATABASE, so a failure here is not fatal.
  */
 async function ensureDatabase() {
-  const url = new URL(getConfig().DATABASE_URL);
-  const database = decodeURIComponent(url.pathname.replace(/^\//, ""));
+  const { database, ...server } = dbConfig;
   if (!database) return;
-  url.pathname = "/";
   let conn: mysql.Connection | undefined;
   try {
-    conn = await mysql.createConnection({ uri: url.toString() });
+    conn = await mysql.createConnection({ ...server, connectTimeout: 20_000 });
     await conn.query(`CREATE DATABASE IF NOT EXISTS \`${database.replaceAll("`", "")}\` CHARACTER SET utf8mb4`);
   } catch {
     /* no permission or no server-level access: use the existing database */
@@ -48,40 +53,12 @@ function migrationsFolder() {
 /** Makes sure the database exists, then applies pending migrations from /drizzle. */
 export async function connectDB() {
   try {
-    console.log("Testing MySQL connection...");
+    await ensureDatabase();
 
-    const [rows] = await pool.query("SELECT 1 AS ok");
-    console.log("MySQL SELECT test:", rows);
-
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS __drizzle_test (
-        id INT NOT NULL AUTO_INCREMENT,
-        test_value TEXT NOT NULL,
-        PRIMARY KEY (id)
-      )
-    `);
-
-    console.log("MySQL CREATE TABLE test: OK");
-
-    await pool.query("DROP TABLE IF EXISTS __drizzle_test");
-
-    console.log("MySQL connection and permissions are OK");
-
-    await migrate(db, {
-      migrationsFolder: migrationsFolder(),
-    });
-
-    console.log("MySQL connected and migrated");
-  } catch (err: any) {
-    console.error("========== MYSQL DEBUG ==========");
-    console.error("name:", err?.name);
-    console.error("code:", err?.code);
-    console.error("errno:", err?.errno);
-    console.error("sqlState:", err?.sqlState);
-    console.error("sqlMessage:", err?.sqlMessage);
-    console.error("message:", err?.message);
-    console.error("stack:", err?.stack);
-    console.error("=================================");
+    await migrate(db, { migrationsFolder: migrationsFolder() });
+    console.log(`MySQL connected (${dbConfig.user}@${dbConfig.host}:${dbConfig.port}/${dbConfig.database}) and migrated`);
+  } catch (err) {
+    console.error("MySQL connection failed:", err);
     process.exit(1);
   }
 }

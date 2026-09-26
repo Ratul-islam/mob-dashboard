@@ -26,7 +26,7 @@ const loadConfig = () => {
     CORS_ORIGIN: optional("CORS_ORIGIN", "http://localhost:3000"),
     COOKIE_SECURE: bool("COOKIE_SECURE", NODE_ENV === "production"),
 
-    DATABASE_URL: optional("DATABASE_URL", "mysql://root@localhost:3306/anura_dashboard"),
+    db: loadDbConfig(),
     // Hosted/free databases often cap connections per user; lower this if you hit that limit.
     DB_POOL_SIZE: Number(optional("DB_POOL_SIZE", "5")),
 
@@ -52,6 +52,38 @@ const loadConfig = () => {
     ANURA_CACHE_TTL_SECONDS: Number(optional("ANURA_CACHE_TTL_SECONDS", "15")),
   };
 };
+
+/**
+ * Database connection from separate DB_* variables (the password is used exactly as written, so
+ * characters like % @ : / need no escaping). DATABASE_URL is still accepted when DB_HOST is unset.
+ */
+function loadDbConfig() {
+  if (!process.env.DB_HOST && process.env.DATABASE_URL) {
+    const url = new URL(process.env.DATABASE_URL);
+    // A bare "%" in the password isn't valid URL encoding; keep it as typed.
+    const decode = (v: string) => {
+      try {
+        return decodeURIComponent(v);
+      } catch {
+        return v;
+      }
+    };
+    return {
+      host: url.hostname,
+      port: Number(url.port || 3306),
+      user: decode(url.username),
+      password: decode(url.password),
+      database: decode(url.pathname.replace(/^\//, "")),
+    };
+  }
+  return {
+    host: optional("DB_HOST", "localhost"),
+    port: Number(optional("DB_PORT", "3306")),
+    user: optional("DB_USER", "root"),
+    password: optional("DB_PASSWORD"),
+    database: optional("DB_NAME", "anura_dashboard"),
+  };
+}
 
 let config: AppConfig | null = null;
 
