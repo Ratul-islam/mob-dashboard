@@ -83,3 +83,18 @@ export const useRawActions = () => {
     }),
   };
 };
+
+export type ValueCount = { value: string; count: number };
+
+export const fetchRawValues = (id: string, column: string, filters: RowFilter[], q?: string) =>
+  api<ValueCount[]>(`/anura/raw/${id}/values`, { method: "POST", body: { column, filters, q: q || undefined } });
+
+/** Distinct values of a column in an imported report, for source/campaign pickers. */
+export const useRawValues = (id: string, column: string, filters: RowFilter[], q: string, enabled: boolean) =>
+  useQuery({
+    queryKey: ["raw", "values", id, column, filters, q],
+    queryFn: () => fetchRawValues(id, column, filters, q),
+    placeholderData: keepPreviousData,
+    staleTime: 60_000,
+    enabled,
+  });

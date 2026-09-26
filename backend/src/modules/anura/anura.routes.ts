@@ -1,6 +1,7 @@
 import { FastifyInstance } from "fastify";
 import { ALL_DRILL_PARAMS, DIRECT_RAW_COLUMNS, DIRECT_REPORT_NAMES, RAW_FILTER_OPERATORS } from "./anura.constants.js";
 import {
+  campaignSources,
   campaigns,
   instances,
   meta,
@@ -14,6 +15,7 @@ import {
   rawRemove,
   rawRequest,
   rawRows,
+  rawValues,
   report,
   sources,
   trend,
@@ -62,6 +64,15 @@ export default async function anuraRoutes(app: FastifyInstance) {
   app.get("/instances", instances);
   app.get("/sources", { schema: { querystring: scopeQuery } }, sources);
   app.get("/campaigns", { schema: { querystring: scopeQuery } }, campaigns);
+  app.get(
+    "/campaign-sources",
+    {
+      schema: {
+        querystring: { ...scopeQuery, required: ["start", "end", "campaign"], properties: { ...scopeProperties, campaign: { ...text, minLength: 1 } } },
+      },
+    },
+    campaignSources,
+  );
   app.get("/overview", { schema: { querystring: scopeQuery } }, overview);
   app.get("/trend", { schema: { querystring: scopeQuery } }, trend);
 
@@ -169,4 +180,22 @@ export default async function anuraRoutes(app: FastifyInstance) {
   };
   app.post("/raw/:id/rows", { schema: { params: rawParams, body: rowsBody } }, rawRows);
   app.post("/raw/:id/facets", { schema: { params: rawParams, body: rowsBody } }, rawFacets);
+  app.post(
+    "/raw/:id/values",
+    {
+      schema: {
+        params: rawParams,
+        body: {
+          type: "object",
+          required: ["column"],
+          properties: {
+            column: { type: "string", pattern: "^[a-z0-9_]{1,64}$" },
+            q: text,
+            filters: { type: "array", maxItems: 30, items: rowFilter },
+          },
+        },
+      },
+    },
+    rawValues,
+  );
 }

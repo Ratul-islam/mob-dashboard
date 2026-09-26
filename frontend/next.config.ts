@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
-const backendUrl = (process.env.BACKEND_URL ?? "http://localhost:8000").replace(/\/+$/, "");
+const rawBackendUrl = (process.env.BACKEND_URL ?? "http://localhost:8000").trim().replace(/\/+$/, "");
+// Accept "my-api.vercel.app" as well as a full URL; rewrites need an absolute http(s) destination.
+const backendUrl = /^https?:\/\//.test(rawBackendUrl) ? rawBackendUrl : `https://${rawBackendUrl}`;
 
 const nextConfig: NextConfig = {
   reactCompiler: true,

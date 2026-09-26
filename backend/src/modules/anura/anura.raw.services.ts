@@ -452,6 +452,34 @@ export const queryRawRows = async (reportId: string, query: RowQuery) => {
   };
 };
 
+/** Distinct values of one column (with row counts) for pickers, optionally narrowed by a search. */
+export const getRawValues = async (
+  reportId: string,
+  query: { column: string; q?: string; filters?: RowFilter[] },
+) => {
+  const imp = await getReadyImport(reportId);
+  const key = query.column;
+  if (!imp.columns.includes(key) || !isKnownColumn(key)) throw new AppError(`Unknown column: ${key}`, 400);
+  const col = COLUMNS[key];
+  const search = query.q?.trim();
+
+  const rows = await db
+    .select({ value: col, count: count() })
+    .from(rawRows)
+    .where(
+      and(
+        buildRowWhere(reportId, imp.columns, { filters: query.filters }),
+        isNotNull(col),
+        search ? like(col, `%${escapeLike(search)}%`) : undefined,
+      ),
+    )
+    .groupBy(col)
+    .orderBy(desc(count()))
+    .limit(500);
+
+  return rows.map((r) => ({ value: String(r.value), count: r.count }));
+};
+
 /** Value counts per column plus an hourly timeline, respecting the current filters. */
 export const getRawFacets = async (reportId: string, query: Pick<RowQuery, "q" | "filters">) => {
   const imp = await getReadyImport(reportId);

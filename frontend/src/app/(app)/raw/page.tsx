@@ -468,6 +468,9 @@ function RequestDialog({
           <Button type="button" size="sm" onClick={() => quick(addDays(today, -6), today)}>
             Last 7 days
           </Button>
+          <Button type="button" size="sm" onClick={() => quick(addDays(today, -29), today)}>
+            Last 30 days
+          </Button>
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="From (UTC)">

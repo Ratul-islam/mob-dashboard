@@ -26,7 +26,8 @@ A private dashboard for Anura traffic quality data:
   - per-column show/hide;
   - optional Anura **rate** and **rule set** columns;
   - CSV export.
-- Filter by date range (UTC), instance, source and campaign. Clicking a source row filters the whole dashboard.
+- Filter by date range (UTC; presets up to a month, custom ranges up to 31 days), instance, source and campaign. Clicking a source row filters the whole dashboard.
+- Anura's breakdown tables and source/campaign lists only accept 7 days per request. For longer ranges the API fetches 7-day pieces, adds them up, and does the sorting, search and paging itself.
 - **Customize**: show, hide and reorder every panel. This is saved per browser.
 
 **Raw data** (Anura `/raw/*` endpoints)

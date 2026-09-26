@@ -8,12 +8,23 @@ import {
   LIMITS,
   RAW_FILTER_OPERATORS,
 } from "./anura.constants.js";
-import { getCampaigns, getInstances, getOverview, getReport, getSources, getTrend, ScopeFilters, todayUtc } from "./anura.services.js";
+import {
+  getCampaigns,
+  getCampaignSources,
+  getInstances,
+  getOverview,
+  getReport,
+  getSources,
+  getTrend,
+  ScopeFilters,
+  todayUtc,
+} from "./anura.services.js";
 import {
   cancelRawReport,
   deleteRawImport,
   getRawFacets,
   getRawReport,
+  getRawValues,
   listRawReports,
   queryRawRows,
   RawFilter,
@@ -54,6 +65,11 @@ export const sources = async (request: FastifyRequest, reply: FastifyReply) => {
 export const campaigns = async (request: FastifyRequest, reply: FastifyReply) => {
   const q = request.query as ScopeQuery;
   return sendSuccess(reply, { data: await getCampaigns(q, q.search) });
+};
+
+export const campaignSources = async (request: FastifyRequest, reply: FastifyReply) => {
+  const q = request.query as ScopeFilters & { campaign: string };
+  return sendSuccess(reply, { data: await getCampaignSources(q, q.campaign) });
 };
 
 export const overview = async (request: FastifyRequest, reply: FastifyReply) =>
@@ -125,6 +141,14 @@ export const rawDeleteImport = async (request: FastifyRequest, reply: FastifyRep
 
 export const rawRows = async (request: FastifyRequest, reply: FastifyReply) =>
   sendSuccess(reply, { data: await queryRawRows((request.params as RawParams).id, request.body as RowQuery) });
+
+export const rawValues = async (request: FastifyRequest, reply: FastifyReply) =>
+  sendSuccess(reply, {
+    data: await getRawValues(
+      (request.params as RawParams).id,
+      request.body as { column: string; q?: string; filters?: RowQuery["filters"] },
+    ),
+  });
 
 export const rawFacets = async (request: FastifyRequest, reply: FastifyReply) =>
   sendSuccess(reply, { data: await getRawFacets((request.params as RawParams).id, request.body as RowQuery) });

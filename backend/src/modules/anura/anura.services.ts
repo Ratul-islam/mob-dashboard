@@ -17,7 +17,7 @@ export const addDays = (isoDate: string, days: number) => {
   return d.toISOString().slice(0, 10);
 };
 
-const daysBetween = (start: string, end: string) =>
+export const daysBetween = (start: string, end: string) =>
   Math.round((Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / 86_400_000);
 
 export const assertRange = (start: string, end: string, maxDays: number) => {
@@ -55,24 +55,49 @@ export const getInstances = async () => {
   return (res.instances ?? []) as { id: string | number; name: string; status?: number }[];
 };
 
+/**
+ * Anura's source/campaign lists accept at most 7 days, so longer ranges are fetched in 7-day
+ * pieces and merged (first-seen order, no duplicates).
+ */
+const listAcrossRange = async (f: ScopeFilters, fetchPiece: (piece: { start: string; end: string }) => Promise<string[]>) => {
+  const pieces = splitRange(f.start, f.end, LIMITS.tableDays);
+  const lists = await Promise.all(pieces.map(fetchPiece));
+  return [...new Set(lists.flat())];
+};
+
 export const getSources = async (f: ScopeFilters, search?: string) => {
-  const { start, end, instance } = scopeParams(f);
-  const res = await anuraRequest(
-    "/interface/sources",
-    { start, end, instance, source: search, all: false, limit: 1000 },
-    { ttlMs: 60_000 },
-  );
-  return (res.sources ?? []).map(String) as string[];
+  assertRange(f.start, f.end, LIMITS.overviewDays);
+  return listAcrossRange(f, async (piece) => {
+    const { start, end, instance } = scopeParams({ ...f, ...piece });
+    const res = await anuraRequest(
+      "/interface/sources",
+      { start, end, instance, source: search, all: false, limit: 1000 },
+      { ttlMs: 60_000 },
+    );
+    return (res.sources ?? []).map(String) as string[];
+  });
 };
 
 export const getCampaigns = async (f: ScopeFilters, search?: string) => {
-  const { start, end, instance, source } = scopeParams(f);
-  const res = await anuraRequest(
-    "/interface/campaigns",
-    { start, end, instance, source, campaign: search, all: false, limit: 1000 },
-    { ttlMs: 60_000 },
-  );
-  return (res.campaigns ?? []).map(String) as string[];
+  assertRange(f.start, f.end, LIMITS.overviewDays);
+  return listAcrossRange(f, async (piece) => {
+    const { start, end, instance, source } = scopeParams({ ...f, ...piece });
+    const res = await anuraRequest(
+      "/interface/campaigns",
+      { start, end, instance, source, campaign: search, all: false, limit: 1000 },
+      { ttlMs: 60_000 },
+    );
+    return (res.campaigns ?? []).map(String) as string[];
+  });
+};
+
+/**
+ * Sources that sent traffic for a campaign, busiest first. Anura has no direct lookup, but the
+ * sessions report filtered by campaign (and no source) breaks that campaign down by source.
+ */
+export const getCampaignSources = async (f: ScopeFilters, campaign: string) => {
+  const report = await getReport("sessions", { ...f, source: undefined, campaign }, { sort: "1:desc", limit: 50 });
+  return report.rows.map((row) => ({ source: row.key, requests: Number(row.cells[1] ?? 0) }));
 };
 
 /* ----------------------------------------------------------------------------------------------
@@ -165,17 +190,49 @@ const normalizeCell = (cell: unknown): Cell => {
   return JSON.stringify(cell);
 };
 
-export const getReport = async (name: DirectReportName, f: ScopeFilters, o: ReportOptions) => {
-  assertRange(f.start, f.end, LIMITS.tableDays);
-  const def = DIRECT_REPORTS[name];
+/** Splits a date range into consecutive pieces of at most `days` days. */
+const splitRange = (start: string, end: string, days: number) => {
+  const chunks: { start: string; end: string }[] = [];
+  for (let s = start; s <= end; s = addDays(s, days)) {
+    const e = addDays(s, days - 1);
+    chunks.push({ start: s, end: e < end ? e : end });
+  }
+  return chunks;
+};
 
+type ReportRow = { key: string; cells: Cell[] };
+
+const parseTable = (res: any) => {
+  const table = res.table ?? { headers: [], rows: [] };
+  const rows: ReportRow[] = ((table.rows ?? []) as unknown[][]).map((row) => {
+    const [first, ...rest] = row;
+    const { key, label } = parseLabelCell(first);
+    return { key, cells: [label, ...rest.map(normalizeCell)] };
+  });
+  const all: Cell[] | null = Array.isArray(table.all)
+    ? [parseLabelCell(table.all[0]).label ?? "All", ...table.all.slice(1).map(normalizeCell)]
+    : null;
+  return { headers: (table.headers ?? []).map(String) as string[], rows, all };
+};
+
+const drillFor = (name: DirectReportName, requested?: Record<string, string | undefined>) => {
   // Anura requires each drill parameter's parent, so only pass a contiguous prefix of the chain.
   const drill: Record<string, string> = {};
-  for (const param of def.drill) {
-    const value = o.drill?.[param];
+  for (const param of DIRECT_REPORTS[name].drill) {
+    const value = requested?.[param];
     if (!value) break;
     drill[param] = value;
   }
+  return drill;
+};
+
+export const getReport = async (name: DirectReportName, f: ScopeFilters, o: ReportOptions) => {
+  assertRange(f.start, f.end, LIMITS.overviewDays);
+  const def = DIRECT_REPORTS[name];
+  const drill = drillFor(name, o.drill);
+
+  // Longer than Anura's table window: combine 7-day pieces on our side.
+  if (daysBetween(f.start, f.end) + 1 > LIMITS.tableDays) return getCombinedReport(name, f, o, drill);
 
   const res = await anuraRequest(def.path, {
     ...scopeParams(f),
@@ -189,20 +246,11 @@ export const getReport = async (name: DirectReportName, f: ScopeFilters, o: Repo
     limit: o.limit,
   });
 
-  const table = res.table ?? { headers: [], rows: [] };
-  const rows = ((table.rows ?? []) as unknown[][]).map((row) => {
-    const [first, ...rest] = row;
-    const { key, label } = parseLabelCell(first);
-    return { key, cells: [label, ...rest.map(normalizeCell)] };
-  });
-  const all = Array.isArray(table.all)
-    ? [parseLabelCell(table.all[0]).label ?? "All", ...table.all.slice(1).map(normalizeCell)]
-    : null;
-
+  const { headers, rows, all } = parseTable(res);
   const q = res.query ?? {};
   return {
     report: name,
-    headers: (table.headers ?? []).map(String) as string[],
+    headers,
     rows,
     all,
     total: normalizeTotal(res.total),
@@ -215,6 +263,131 @@ export const getReport = async (name: DirectReportName, f: ScopeFilters, o: Repo
       pages: Number(q.pages ?? 1),
     },
     sort: q.sort ?? o.sort ?? "1:desc",
+  };
+};
+
+const RATE_SUFFIX = " Rate";
+const MAX_PAGES_PER_CHUNK = 20;
+
+/**
+ * Builds a breakdown table for up to 31 days from 7-day pieces: every row of every piece is fetched,
+ * counts are summed per row, rate columns are recomputed from the sums, and search/sort/paging
+ * are applied here instead of by Anura.
+ */
+const getCombinedReport = async (
+  name: DirectReportName,
+  f: ScopeFilters,
+  o: ReportOptions,
+  drill: Record<string, string>,
+) => {
+  const def = DIRECT_REPORTS[name];
+  const today = todayUtc();
+
+  const fetchChunk = async (chunk: { start: string; end: string }) => {
+    // Settled days don't change, so pieces that end before today are cached for longer.
+    const ttl = chunk.end < today ? { ttlMs: 10 * 60_000 } : {};
+    const params = {
+      ...scopeParams({ ...f, ...chunk }),
+      ...drill,
+      rules: o.rules || undefined,
+      search: o.search,
+      startswith: o.search && o.startswith ? true : undefined,
+      sort: "1:desc",
+      limit: 1000,
+    };
+    const first = await anuraRequest(def.path, { ...params, page: 1 }, ttl);
+    const pages = Math.min(Number(first.query?.pages ?? 1), MAX_PAGES_PER_CHUNK);
+    const rest = await Promise.all(
+      Array.from({ length: pages - 1 }, (_, i) => anuraRequest(def.path, { ...params, page: i + 2 }, ttl)),
+    );
+    return [first, ...rest];
+  };
+
+  const responses = (await Promise.all(splitRange(f.start, f.end, LIMITS.tableDays).map(fetchChunk))).flat();
+
+  // Union of count headers across pieces (rule set columns can differ from week to week).
+  const countHeaders: string[] = [];
+  let labelHeader = "";
+  const byKey = new Map<string, { label: Cell; counts: Map<string, number> }>();
+  const allCounts = new Map<string, number>();
+  let allLabel: Cell = "All";
+  const total = { nonsuspect: 0, suspect: 0, mobile: 0 };
+
+  responses.forEach((res) => {
+    const { headers, rows, all } = parseTable(res);
+    labelHeader ||= headers[0] ?? "";
+    for (const h of headers.slice(1)) if (!countHeaders.includes(h)) countHeaders.push(h);
+
+    for (const row of rows) {
+      const entry = byKey.get(row.key) ?? { label: row.cells[0], counts: new Map<string, number>() };
+      headers.forEach((h, i) => i > 0 && entry.counts.set(h, (entry.counts.get(h) ?? 0) + Number(row.cells[i] ?? 0)));
+      byKey.set(row.key, entry);
+    }
+    // Each piece repeats its "all" row and totals on every page; count them once per piece.
+    if (Number(res.query?.page ?? 1) === 1) {
+      if (all) {
+        allLabel = all[0];
+        headers.forEach((h, i) => i > 0 && allCounts.set(h, (allCounts.get(h) ?? 0) + Number(all[i] ?? 0)));
+      }
+      const t = normalizeTotal(res.total);
+      total.nonsuspect += t.nonsuspect;
+      total.suspect += t.suspect;
+      total.mobile += t.mobile;
+    }
+  });
+
+  // Same column layout Anura uses with rates on: each count followed by its share of requests.
+  const headers = [labelHeader];
+  for (const h of countHeaders) {
+    headers.push(h);
+    if (o.rates && ["Non-Suspect", "Suspect", "Mobile"].includes(h)) headers.push(`${h}${RATE_SUFFIX}`);
+  }
+  const toCells = (label: Cell, counts: Map<string, number>): Cell[] => {
+    const requests = counts.get("Requests") ?? 0;
+    return headers.map((h, i) => {
+      if (i === 0) return label;
+      if (h.endsWith(RATE_SUFFIX)) {
+        const base = counts.get(h.slice(0, -RATE_SUFFIX.length)) ?? 0;
+        return requests ? Math.round((base / requests) * 10000) / 100 : 0;
+      }
+      return counts.get(h) ?? 0;
+    });
+  };
+
+  let rows: ReportRow[] = [...byKey].map(([key, e]) => ({ key, cells: toCells(e.label, e.counts) }));
+
+  const sort = o.sort ?? "1:desc";
+  const keys = sort.split(",").map((part) => {
+    const [col, dir] = part.split(":");
+    return { col: Number(col), dir: dir === "asc" ? 1 : -1 };
+  });
+  rows.sort((a, b) => {
+    for (const { col, dir } of keys) {
+      const x = a.cells[col];
+      const y = b.cells[col];
+      const cmp =
+        typeof x === "number" && typeof y === "number" ? x - y : String(x ?? "").localeCompare(String(y ?? ""), undefined, { numeric: true });
+      if (cmp) return cmp * dir;
+    }
+    return 0;
+  });
+
+  const limit = o.limit ?? 20;
+  const results = rows.length;
+  const pages = Math.max(1, Math.ceil(results / limit));
+  const page = Math.min(o.page ?? 1, pages);
+  rows = rows.slice((page - 1) * limit, page * limit);
+
+  return {
+    report: name,
+    headers,
+    rows,
+    all: allCounts.size ? toCells(allLabel, allCounts) : null,
+    total: normalizeTotal(total),
+    drill,
+    drillParams: def.drill,
+    pagination: { page, limit, results, pages },
+    sort,
   };
 };
 

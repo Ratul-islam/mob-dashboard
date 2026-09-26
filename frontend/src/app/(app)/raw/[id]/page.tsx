@@ -29,6 +29,7 @@ import type { RawRow, RowFilter, RowValue } from "@/lib/types";
 import { PageHeader } from "@/components/PageHeader";
 import { StackedBars } from "@/components/charts/StackedBars";
 import { FacetPanel } from "@/components/raw/FacetPanel";
+import { QuickFilters } from "@/components/raw/QuickFilters";
 import {
   Alert,
   Badge,
@@ -226,7 +227,10 @@ export default function RawReportPage() {
             )}
 
             <Card className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2 px-4 pt-4 pb-3">
+              <div className="px-4 pt-4">
+                <QuickFilters reportId={id} columns={columns} filters={filters} onFiltersChange={setFilters} />
+              </div>
+              <div className="flex flex-wrap items-center gap-2 px-4 pt-3 pb-3">
                 <div className="relative min-w-48 flex-1">
                   <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted" aria-hidden />
                   <Input

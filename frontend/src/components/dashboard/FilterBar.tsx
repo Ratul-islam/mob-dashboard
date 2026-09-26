@@ -1,9 +1,15 @@
 "use client";
 
+import { useState } from "react";
 import { FilterX } from "lucide-react";
+import { api, errorMessage } from "@/lib/api";
 import { useCampaigns, useInstances, useSources } from "@/lib/queries";
 import { addDays, daysInclusive, presetRange, RANGE_PRESETS, RangePreset, todayUtc } from "@/lib/dates";
-import { Button, Field, Input, Select } from "@/components/ui";
+import { formatInt } from "@/lib/format";
+import { Combobox } from "@/components/Combobox";
+import { Button, Field, Input, Select, toast } from "@/components/ui";
+
+type CampaignSource = { source: string; requests: number };
 
 export interface DashboardFilters {
   preset: RangePreset;
@@ -43,8 +49,38 @@ export function FilterBar({
 
   const hasScopeFilter = Boolean(filters.source || filters.campaign);
 
+  // Sources found for the selected campaign (a campaign can run on more than one source).
+  const [campaignLookup, setCampaignLookup] = useState<{ campaign: string; sources: CampaignSource[] } | null>(null);
+  const [resolving, setResolving] = useState(false);
+
+  const setSource = (source: string) => set({ source, campaign: source === filters.source ? filters.campaign : "" });
+
+  /** Picking a campaign without a source also selects the source that sent most of its traffic. */
+  const setCampaign = async (campaign: string) => {
+    if (!campaign || filters.source) return set({ campaign });
+    setResolving(true);
+    try {
+      const sources = await api<CampaignSource[]>("/anura/campaign-sources", {
+        query: { start: filters.start, end: filters.end, instance: filters.instance || undefined, campaign },
+      });
+      setCampaignLookup({ campaign, sources });
+      set({ campaign, source: sources[0]?.source ?? "" });
+      if (!sources.length) toast.info(`No traffic for campaign ${campaign} in this date range`);
+    } catch (err) {
+      set({ campaign });
+      toast.error(`Couldn't find the source for campaign ${campaign}: ${errorMessage(err)}`);
+    } finally {
+      setResolving(false);
+    }
+  };
+
+  const otherSources =
+    campaignLookup && campaignLookup.campaign === filters.campaign
+      ? campaignLookup.sources.filter((s) => s.source !== filters.source)
+      : [];
+
   return (
-    <div className="flex flex-wrap items-end gap-3 rounded-xl border border-line bg-surface p-3 shadow-card">
+    <div className="flex flex-wrap items-start gap-3 rounded-xl border border-line bg-surface p-3 shadow-card">
       <Field label="Date range (UTC)" className="w-40">
         {(id) => (
           <Select id={id} value={filters.preset} onChange={(e) => setPreset(e.target.value as RangePreset)}>
@@ -98,36 +134,56 @@ export function FilterBar({
 
       <Field label="Source" className="w-52">
         {(id) => (
-          <Select id={id} value={filters.source} onChange={(e) => set({ source: e.target.value, campaign: "" })}>
-            <option value="">All sources{sources.data ? ` (${sources.data.length})` : ""}</option>
-            {filters.source && !sources.data?.includes(filters.source) && <option value={filters.source}>{filters.source}</option>}
-            {sources.data?.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </Select>
+          <Combobox
+            id={id}
+            value={filters.source}
+            onChange={setSource}
+            options={(sources.data ?? []).map((value) => ({ value }))}
+            placeholder={`All sources${sources.data ? ` (${sources.data.length})` : ""}`}
+            loading={sources.isFetching}
+          />
         )}
       </Field>
 
-      <Field label="Campaign" className="w-52">
+      <Field
+        label="Campaign"
+        className="w-52"
+        hint={
+          otherSources.length > 0 && (
+            <span>
+              Also on source{" "}
+              {otherSources.slice(0, 4).map((s, i) => (
+                <span key={s.source}>
+                  {i > 0 && ", "}
+                  <button
+                    type="button"
+                    className="text-accent hover:underline"
+                    title={`${formatInt(s.requests)} requests`}
+                    onClick={() => set({ source: s.source })}
+                  >
+                    {s.source}
+                  </button>
+                </span>
+              ))}
+              {otherSources.length > 4 && ` +${otherSources.length - 4} more`}
+            </span>
+          )
+        }
+      >
         {(id) => (
-          <Select id={id} value={filters.campaign} onChange={(e) => set({ campaign: e.target.value })}>
-            <option value="">All campaigns{campaigns.data ? ` (${campaigns.data.length})` : ""}</option>
-            {filters.campaign && !campaigns.data?.includes(filters.campaign) && (
-              <option value={filters.campaign}>{filters.campaign}</option>
-            )}
-            {campaigns.data?.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </Select>
+          <Combobox
+            id={id}
+            value={filters.campaign}
+            onChange={setCampaign}
+            options={(campaigns.data ?? []).map((value) => ({ value }))}
+            placeholder={`All campaigns${campaigns.data ? ` (${campaigns.data.length})` : ""}`}
+            loading={campaigns.isFetching || resolving}
+          />
         )}
       </Field>
 
       {hasScopeFilter && (
-        <Button variant="ghost" icon={<FilterX className="size-4" />} onClick={() => set({ source: "", campaign: "" })}>
+        <Button variant="ghost" className="mt-[26px]" icon={<FilterX className="size-4" />} onClick={() => set({ source: "", campaign: "" })}>
           Clear source/campaign
         </Button>
       )}

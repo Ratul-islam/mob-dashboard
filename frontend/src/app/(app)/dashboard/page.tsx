@@ -186,7 +186,7 @@ export default function DashboardPage() {
       />
 
       <div className="flex flex-col gap-4">
-        <FilterBar filters={filters} onChange={setFilters} maxDays={meta.data?.limits.tableDays ?? 7} />
+        <FilterBar filters={filters} onChange={setFilters} maxDays={meta.data?.limits.overviewDays ?? 31} />
 
         {(filters.source || filters.campaign) && (
           <div className="flex flex-wrap items-center gap-2 text-sm">
