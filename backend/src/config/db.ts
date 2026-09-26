@@ -52,7 +52,7 @@ export async function connectDB() {
 
     await migrate(db, { migrationsFolder: migrationsFolder() });
     console.log("MySQL connected and migrated");
-  } catch (err) {
+  } catch (err:any) {
   console.error("MySQL connection/migration failed");
   console.error("code:", err?.code);
   console.error("errno:", err?.errno);
