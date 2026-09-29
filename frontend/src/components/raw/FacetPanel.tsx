@@ -2,10 +2,10 @@
 
 import { useState } from "react";
 import clsx from "clsx";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { formatInt, humanizeColumn } from "@/lib/format";
 import type { RawFacets, RowFilter } from "@/lib/types";
-import { Card, Spinner } from "@/components/ui";
+import { Badge, Card, IconButton, Spinner } from "@/components/ui";
 
 const DEFAULT_OPEN = ["result", "invalid_traffic_type", "rule_sets", "country", "device_type"];
 
@@ -50,19 +50,51 @@ export function FacetPanel({
   loading,
   filters,
   onFiltersChange,
+  collapsed,
+  onCollapsedChange,
 }: {
   facets?: RawFacets;
   loading: boolean;
   filters: RowFilter[];
   onFiltersChange: (filters: RowFilter[]) => void;
+  collapsed: boolean;
+  onCollapsedChange: (collapsed: boolean) => void;
 }) {
   const [open, setOpen] = useState<string[]>(DEFAULT_OPEN);
 
+  if (collapsed) {
+    // A slim rail beside the table on wide screens, a single bar when stacked.
+    return (
+      <Card className="overflow-hidden xl:sticky xl:top-4">
+        <button
+          type="button"
+          onClick={() => onCollapsedChange(false)}
+          aria-expanded={false}
+          title="Show breakdown"
+          className="flex w-full items-center gap-2 px-4 py-3 text-left text-[15px] font-semibold hover:bg-surface-2 xl:flex-col xl:px-0 xl:py-4"
+        >
+          <PanelLeftOpen className="size-4 shrink-0 text-muted" aria-hidden />
+          <span className="xl:[writing-mode:vertical-rl]">Breakdown</span>
+          {filters.length > 0 && (
+            <Badge tone="accent" className="ml-auto xl:ml-0">
+              {filters.length}
+            </Badge>
+          )}
+        </button>
+      </Card>
+    );
+  }
+
   return (
     <Card className="overflow-hidden">
-      <div className="flex items-center justify-between border-b border-line px-4 py-3">
+      <div className="flex items-center justify-between gap-2 border-b border-line py-2 pr-2 pl-4">
         <h2 className="text-[15px] font-semibold">Breakdown</h2>
-        {loading && <Spinner className="size-3.5" />}
+        <div className="flex items-center gap-1">
+          {loading && <Spinner className="size-3.5" />}
+          <IconButton label="Collapse breakdown" onClick={() => onCollapsedChange(true)} aria-expanded>
+            <PanelLeftClose className="size-4" />
+          </IconButton>
+        </div>
       </div>
       <div className="scroll-thin max-h-[calc(100vh-10rem)] overflow-y-auto">
         {Object.entries(facets?.facets ?? {}).map(([column, buckets]) => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import clsx from "clsx";
@@ -12,6 +12,7 @@ import {
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   Columns3,
   Download,
   FilterX,
@@ -102,6 +103,9 @@ export default function RawReportPage() {
 
   const [hidden, setHidden] = useStoredState<string[]>("raw-hidden-columns", DEFAULT_HIDDEN);
   const [limit, setLimit] = useStoredState<number>("raw-page-size", 50);
+  const [breakdownCollapsed, setBreakdownCollapsed] = useStoredState<boolean>("raw-breakdown-collapsed", false);
+  const [chartCollapsed, setChartCollapsed] = useStoredState<boolean>("raw-chart-collapsed", false);
+  const rowsScroller = useRef<HTMLDivElement>(null);
   const [page, setPage] = useState(1);
   const [sort, setSort] = useState<{ column: string; dir: "asc" | "desc" }>({ column: "timestamp", dir: "desc" });
   const [searchInput, setSearchInput] = useState("");
@@ -113,6 +117,11 @@ export default function RawReportPage() {
   const rowsQuery = { page, limit, sort: sort.column, dir: sort.dir, q, filters };
   const rows = useRawRows(id, rowsQuery, imported);
   const facets = useRawFacets(id, { q, filters }, imported);
+
+  // New page/sort/filter: show the first rows instead of keeping the old scroll position.
+  useEffect(() => {
+    rowsScroller.current?.scrollTo({ top: 0 });
+  }, [page, limit, sort, q, filters]);
 
   const setFilters = (next: RowFilter[]) => {
     setFiltersState(next);
@@ -205,32 +214,59 @@ export default function RawReportPage() {
           )}
         </Card>
       ) : (
-        <div className="grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
+        <div
+          className={clsx(
+            "grid gap-4",
+            breakdownCollapsed ? "xl:grid-cols-[48px_minmax(0,1fr)]" : "xl:grid-cols-[280px_minmax(0,1fr)]",
+          )}
+        >
           <div className="order-2 xl:order-1">
-            <FacetPanel facets={facets.data} loading={facets.isFetching} filters={filters} onFiltersChange={setFilters} />
+            <FacetPanel
+              facets={facets.data}
+              loading={facets.isFetching}
+              filters={filters}
+              onFiltersChange={setFilters}
+              collapsed={breakdownCollapsed}
+              onCollapsedChange={setBreakdownCollapsed}
+            />
           </div>
 
           <div className="order-1 flex min-w-0 flex-col gap-4 xl:order-2">
             {facets.data && facets.data.timeline.length > 1 && (
               <Card>
-                <CardHeader title="Requests per hour" subtitle={`${formatInt(facets.data.total)} matching rows · UTC`} />
-                <div className="px-4 pb-4">
-                  <StackedBars
-                    height={180}
-                    tableKeyLabel="Hour (UTC)"
-                    data={facets.data.timeline.map((t) => ({ key: t.hour, nonsuspect: t.nonsuspect, suspect: t.suspect }))}
-                    tickFormatter={(h) => (h.slice(11, 13) === "00" ? h.slice(5, 10) : h.slice(11, 16))}
-                    labelFormatter={(h) => formatUtc(h)}
-                  />
-                </div>
+                <CardHeader
+                  className={clsx(chartCollapsed && "pb-4")}
+                  title="Requests per hour"
+                  subtitle={`${formatInt(facets.data.total)} matching rows · UTC`}
+                  actions={
+                    <IconButton
+                      label={chartCollapsed ? "Show chart" : "Hide chart"}
+                      aria-expanded={!chartCollapsed}
+                      onClick={() => setChartCollapsed(!chartCollapsed)}
+                    >
+                      <ChevronUp className={clsx("size-4 transition-transform", chartCollapsed && "rotate-180")} />
+                    </IconButton>
+                  }
+                />
+                {!chartCollapsed && (
+                  <div className="px-4 pb-4">
+                    <StackedBars
+                      height={180}
+                      tableKeyLabel="Hour (UTC)"
+                      data={facets.data.timeline.map((t) => ({ key: t.hour, nonsuspect: t.nonsuspect, suspect: t.suspect }))}
+                      tickFormatter={(h) => (h.slice(11, 13) === "00" ? h.slice(5, 10) : h.slice(11, 16))}
+                      labelFormatter={(h) => formatUtc(h)}
+                    />
+                  </div>
+                )}
               </Card>
             )}
 
-            <Card className="min-w-0">
-              <div className="px-4 pt-4">
+            <Card className="sticky top-[68px] flex max-h-[calc(100dvh-88px)] min-w-0 flex-col lg:top-6 lg:max-h-[calc(100dvh-3rem)]">
+              <div className="shrink-0 px-4 pt-4">
                 <QuickFilters reportId={id} columns={columns} filters={filters} onFiltersChange={setFilters} />
               </div>
-              <div className="flex flex-wrap items-center gap-2 px-4 pt-3 pb-3">
+              <div className="flex shrink-0 flex-wrap items-center gap-2 px-4 pt-3 pb-3">
                 <div className="relative min-w-48 flex-1">
                   <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted" aria-hidden />
                   <Input
@@ -283,7 +319,7 @@ export default function RawReportPage() {
               </div>
 
               {filters.length > 0 && (
-                <div className="flex flex-wrap items-center gap-1.5 px-4 pb-3">
+                <div className="flex shrink-0 flex-wrap items-center gap-1.5 px-4 pb-3">
                   {filters.map((f, i) => (
                     <span key={i} className="inline-flex items-center gap-1 rounded-full bg-accent-soft py-0.5 pr-1 pl-2.5 text-xs text-accent">
                       {filterLabel(f)}
@@ -307,16 +343,20 @@ export default function RawReportPage() {
                   <Alert tone="error">{errorMessage(rows.error)}</Alert>
                 </div>
               ) : (
-                <div className={clsx("scroll-thin overflow-x-auto transition-opacity", rows.isPlaceholderData && "opacity-60")}>
+                <div
+                  ref={rowsScroller}
+                  className={clsx("scroll-thin min-h-0 flex-1 overflow-auto transition-opacity", rows.isPlaceholderData && "opacity-60")}
+                >
                   <table className="w-full text-[13px]">
                     <thead>
-                      <tr className="border-y border-line bg-surface-2 text-left text-xs text-ink-2">
+                      <tr className="text-left text-xs text-ink-2">
                         {visibleColumns.map((c) => (
                           <th
                             key={c}
                             scope="col"
                             aria-sort={sort.column === c ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}
-                            className="px-3 py-2 font-medium whitespace-nowrap"
+                            // Pinned while rows scroll; the inset shadows stand in for borders, which don't stick.
+                            className="sticky top-0 z-10 bg-[color-mix(in_srgb,var(--accent)_9%,var(--surface))] px-3 py-2.5 font-semibold whitespace-nowrap text-ink shadow-[inset_0_1px_0_var(--border),inset_0_-1px_0_var(--border)]"
                           >
                             <button className={clsx("inline-flex items-center gap-1 hover:text-ink", sort.column === c && "text-ink")} onClick={() => onSort(c)}>
                               {humanizeColumn(c)}
@@ -337,11 +377,21 @@ export default function RawReportPage() {
                           </tr>
                         ))}
                       {rows.data?.rows.map((row) => (
-                        <tr key={row.id} className="cursor-pointer border-b border-line last:border-b-0 hover:bg-surface-2/70" onClick={() => setSelected(row)}>
-                          {visibleColumns.map((c) => (
+                        <tr
+                          key={row.id}
+                          className="cursor-pointer border-b border-line transition-colors last:border-b-0 even:bg-surface-2/50 hover:bg-accent-soft"
+                          onClick={() => setSelected(row)}
+                        >
+                          {visibleColumns.map((c, i) => (
                             <td
                               key={c}
-                              className={clsx("px-3 py-2 whitespace-nowrap", /user_agent|additional/.test(c) ? "max-w-80 truncate" : "max-w-56 truncate")}
+                              className={clsx(
+                                "px-3 py-2.5 whitespace-nowrap",
+                                /user_agent|additional/.test(c) ? "max-w-80 truncate" : "max-w-56 truncate",
+                                // Result strip: suspect / non-suspect in the chart colors.
+                                i === 0 && row.result === "suspect" && "shadow-[inset_3px_0_0_var(--series-2)]",
+                                i === 0 && row.result === "non-suspect" && "shadow-[inset_3px_0_0_var(--series-1)]",
+                              )}
                               title={typeof row[c] === "string" ? (row[c] as string) : undefined}
                             >
                               <CellValue column={c} value={row[c]} />
@@ -362,7 +412,7 @@ export default function RawReportPage() {
               )}
 
               {pag && (
-                <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-xs text-muted">
+                <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-line px-4 py-2.5 text-xs text-muted">
                   <span className="tabular">
                     {pag.results ? `${formatInt((pag.page - 1) * pag.limit + 1)}–${formatInt(Math.min(pag.page * pag.limit, pag.results))}` : 0} of{" "}
                     {formatInt(pag.results)}
