@@ -72,16 +72,18 @@ export async function api<T = unknown>(
   path: string,
   { method = "GET", body, query, signal }: { method?: string; body?: unknown; query?: Query; signal?: AbortSignal } = {},
 ): Promise<T> {
+  // Blobs (file uploads) are sent as they are, with their own content type.
+  const raw = body instanceof Blob;
   const send = () =>
     fetch(`${BASE}${path}${toQueryString(query)}`, {
       method,
       signal,
       credentials: "include",
       headers: {
-        ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+        ...(body !== undefined ? { "Content-Type": raw ? body.type : "application/json" } : {}),
         ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
       },
-      body: body !== undefined ? JSON.stringify(body) : undefined,
+      body: raw ? body : body !== undefined ? JSON.stringify(body) : undefined,
     });
 
   let res = await send();

@@ -2,7 +2,7 @@
 
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./api";
-import type { RawFacets, RawReportDetail, RawReportList, RawRowsResponse, RowFilter } from "./types";
+import type { ConversionUploadResult, RawFacets, RawReportDetail, RawReportList, RawRowsResponse, RowFilter } from "./types";
 
 const PENDING = new Set(["In Progress", "Queued", "Pending", "Processing"]);
 
@@ -69,6 +69,15 @@ export const useRawActions = () => {
       mutationFn: (id: string) => api(`/anura/raw/${id}/import`, { method: "POST" }),
       onSuccess: invalidate,
     }),
+    uploadConversions: useMutation({
+      mutationFn: async ({ id, file }: { id: string; file: File }) =>
+        api<ConversionUploadResult>(`/anura/raw/${id}/conversions`, {
+          method: "POST",
+          query: { name: file.name },
+          body: await compressCsv(file),
+        }),
+      onSuccess: invalidate,
+    }),
     deleteImport: useMutation({
       mutationFn: (id: string) => api(`/anura/raw/${id}/import`, { method: "DELETE" }),
       onSuccess: invalidate,
@@ -82,6 +91,13 @@ export const useRawActions = () => {
       onSuccess: invalidate,
     }),
   };
+};
+
+/** Gzips the CSV when the browser can, so large exports stay under proxy body size limits. */
+const compressCsv = async (file: File): Promise<Blob> => {
+  if (typeof CompressionStream === "undefined") return new Blob([file], { type: "text/csv" });
+  const gzipped = file.stream().pipeThrough(new CompressionStream("gzip"));
+  return new Blob([await new Response(gzipped).arrayBuffer()], { type: "application/gzip" });
 };
 
 export type ValueCount = { value: string; count: number };

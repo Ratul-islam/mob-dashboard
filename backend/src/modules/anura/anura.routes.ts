@@ -15,6 +15,7 @@ import {
   rawRemove,
   rawRequest,
   rawRows,
+  rawUploadConversions,
   rawValues,
   report,
   sources,
@@ -166,6 +167,20 @@ export default async function anuraRoutes(app: FastifyInstance) {
 
   app.post("/raw/:id/import", { schema: { params: rawParams } }, rawImport);
   app.delete("/raw/:id/import", { schema: { params: rawParams } }, rawDeleteImport);
+
+  // Everflow conversions export, sent as the CSV itself (optionally gzipped) rather than multipart.
+  app.addContentTypeParser(["text/csv", "application/gzip"], { parseAs: "buffer" }, (_req, body, done) => done(null, body));
+  app.post(
+    "/raw/:id/conversions",
+    {
+      bodyLimit: 50 * 1024 * 1024,
+      schema: {
+        params: rawParams,
+        querystring: { type: "object", properties: { name: { type: "string", maxLength: 255 } } },
+      },
+    },
+    rawUploadConversions,
+  );
 
   const rowsBody = {
     type: "object",

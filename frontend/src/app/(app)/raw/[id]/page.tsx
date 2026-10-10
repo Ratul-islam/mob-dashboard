@@ -13,11 +13,13 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronUp,
+  CircleDollarSign,
   Columns3,
   Download,
   FilterX,
   Plus,
   Search,
+  Upload,
   X,
 } from "lucide-react";
 import { useRawActions, useRawFacets, useRawReport, useRawRows } from "@/lib/rawQueries";
@@ -25,8 +27,8 @@ import { useStoredState } from "@/lib/useStoredState";
 import { useDebounced } from "@/lib/useDebounced";
 import { errorMessage } from "@/lib/api";
 import { downloadCsv } from "@/lib/csv";
-import { formatAnuraDate, formatCell, formatInt, formatUtc, humanizeColumn } from "@/lib/format";
-import type { RawRow, RowFilter, RowValue } from "@/lib/types";
+import { formatAnuraDate, formatCell, formatInt, formatRelative, formatUtc, humanizeColumn } from "@/lib/format";
+import type { ConversionUploadResult, EverflowUpload, RawRow, RowFilter, RowValue } from "@/lib/types";
 import { PageHeader } from "@/components/PageHeader";
 import { StackedBars } from "@/components/charts/StackedBars";
 import { FacetPanel } from "@/components/raw/FacetPanel";
@@ -59,7 +61,40 @@ const DEFAULT_HIDDEN = [
   "additional_data_01",
   "additional_data_02",
   "additional_data_03",
+  "conversion_offer",
 ];
+
+const TIME_COLUMNS = ["timestamp", "converted_at"];
+
+const CONVERSION_STATUS_TONES: Record<string, "good" | "warning" | "critical"> = {
+  approved: "good",
+  pending: "warning",
+  rejected: "critical",
+  invalid: "critical",
+};
+
+const uploadSummary = (u: EverflowUpload | null) => {
+  if (!u) return "no Everflow conversions uploaded yet";
+  const from = u.firstConversionAt?.slice(0, 10);
+  const to = u.lastConversionAt?.slice(0, 10);
+  const range = from && to ? (from === to ? ` for ${from}` : ` for ${from} → ${to}`) : "";
+  return `Everflow conversions last uploaded ${formatRelative(u.uploadedAt)} (${formatInt(u.conversions)}${range})`;
+};
+
+/** Says where an upload's clicks landed, so an export with no leads in this report isn't a silent 0. */
+const uploadResultMessage = (res: ConversionUploadResult, reportId: string) => {
+  const uploaded = `${formatInt(res.conversions)} conversion${res.conversions === 1 ? "" : "s"} uploaded`;
+  if (res.reportConverted) return `${uploaded} · ${formatInt(res.reportConverted)} rows in this report converted`;
+  const others = res.reports.filter((r) => r.reportId !== reportId);
+  if (others.length) {
+    const names = others.map((r) => r.name || r.reportId).slice(0, 3).join(", ");
+    return `${uploaded} · none are in this report; they match leads in ${names}${others.length > 3 ? "…" : ""}`;
+  }
+  const from = res.firstConversionAt?.slice(0, 10);
+  const to = res.lastConversionAt?.slice(0, 10);
+  const range = from && to ? (from === to ? from : `${from} → ${to}`) : "those dates";
+  return `${uploaded} · their clicks aren't in any imported report yet. Import a raw report covering ${range} to see who converted.`;
+};
 
 const OPERATORS: { value: string; label: string; noValue?: boolean }[] = [
   { value: "contains", label: "contains" },
@@ -77,7 +112,8 @@ const OPERATORS: { value: string; label: string; noValue?: boolean }[] = [
 const filterLabel = (f: RowFilter) => {
   const op = f.operator === "in" ? "is" : f.operator === "not_in" ? "is not" : (OPERATORS.find((o) => o.value === f.operator)?.label ?? f.operator);
   const value = Array.isArray(f.value) ? f.value.join(", ") : (f.value ?? "");
-  return `${humanizeColumn(f.column)} ${op}${value ? ` ${f.column === "timestamp" ? formatUtc(value) : value}` : ""}`;
+  const shown = TIME_COLUMNS.includes(f.column) ? formatUtc(value) : f.column === "converted" ? (value === "true" ? "Yes" : "No") : value;
+  return `${humanizeColumn(f.column)} ${op}${value ? ` ${shown}` : ""}`;
 };
 
 function CellValue({ column, value }: { column: string; value: RowValue }) {
@@ -92,7 +128,19 @@ function CellValue({ column, value }: { column: string; value: RowValue }) {
       </Badge>
     );
   }
-  if (column === "timestamp") return <span className="tabular">{formatUtc(value as string)}</span>;
+  if (column === "converted") {
+    return value ? (
+      <Badge tone="good">
+        <CircleDollarSign className="size-3" aria-hidden /> Converted
+      </Badge>
+    ) : (
+      <span className="text-muted">–</span>
+    );
+  }
+  if (column === "conversion_status" && typeof value === "string") {
+    return <Badge tone={CONVERSION_STATUS_TONES[value] ?? "neutral"}>{value}</Badge>;
+  }
+  if (TIME_COLUMNS.includes(column)) return <span className="tabular">{formatUtc(value as string)}</span>;
   return <>{formatCell(value)}</>;
 }
 
@@ -100,6 +148,7 @@ export default function RawReportPage() {
   const { id } = useParams<{ id: string }>();
   const report = useRawReport(id);
   const actions = useRawActions();
+  const conversionsInput = useRef<HTMLInputElement>(null);
 
   const [hidden, setHidden] = useStoredState<string[]>("raw-hidden-columns", DEFAULT_HIDDEN);
   const [limit, setLimit] = useStoredState<number>("raw-page-size", 50);
@@ -163,6 +212,7 @@ export default function RawReportPage() {
 
   const r = report.data;
   const pag = rows.data?.pagination;
+  const conversions = r.import?.status === "ready" ? r.import.conversions : null;
 
   return (
     <>
@@ -173,24 +223,56 @@ export default function RawReportPage() {
           <span>
             {formatAnuraDate(r.start)} → {formatAnuraDate(r.end)} (UTC) · {r.instance_name} · {r.type}
             {r.import?.status === "ready" && <> · {formatInt(r.import.rows)} rows imported {r.import.importedAt ? formatUtc(r.import.importedAt) : ""}</>}
+            {conversions && <> · {uploadSummary(conversions.lastUpload)}</>}
           </span>
         }
         actions={
-          r.status === "Ready" &&
-          r.import?.status !== "importing" && (
-            <Button
-              size="sm"
-              loading={actions.importReport.isPending}
-              onClick={() =>
-                actions.importReport
-                  .mutateAsync(id)
-                  .then(() => toast.success("Import started"))
-                  .catch((e) => toast.error(errorMessage(e)))
-              }
-            >
-              {r.import ? "Re-import" : "Import rows"}
-            </Button>
-          )
+          <div className="flex flex-wrap gap-2">
+            {conversions && (
+              <>
+                <input
+                  ref={conversionsInput}
+                  type="file"
+                  accept=".csv,text/csv"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = "";
+                    if (!file) return;
+                    actions.uploadConversions
+                      .mutateAsync({ id, file })
+                      .then((res) =>
+                        res.reportConverted ? toast.success(uploadResultMessage(res, id)) : toast.info(uploadResultMessage(res, id)),
+                      )
+                      .catch((err) => toast.error(errorMessage(err)));
+                  }}
+                />
+                <Button
+                  size="sm"
+                  icon={<Upload className="size-3.5" />}
+                  loading={actions.uploadConversions.isPending}
+                  title="Upload an Everflow conversions export (CSV) to mark which rows converted"
+                  onClick={() => conversionsInput.current?.click()}
+                >
+                  Upload conversions
+                </Button>
+              </>
+            )}
+            {r.status === "Ready" && r.import?.status !== "importing" && (
+              <Button
+                size="sm"
+                loading={actions.importReport.isPending}
+                onClick={() =>
+                  actions.importReport
+                    .mutateAsync(id)
+                    .then(() => toast.success("Import started"))
+                    .catch((e) => toast.error(errorMessage(e)))
+                }
+              >
+                {r.import ? "Re-import" : "Import rows"}
+              </Button>
+            )}
+          </div>
         }
       />
 
@@ -458,7 +540,11 @@ export default function RawReportPage() {
               <div key={c} className="contents">
                 <dt className="text-muted">{humanizeColumn(c)}</dt>
                 <dd className="font-mono text-[13px] break-all">
-                  {c === "result" || c === "timestamp" ? <CellValue column={c} value={selected[c]} /> : formatCell(selected[c])}
+                  {c === "result" || c === "converted" || c === "conversion_status" || TIME_COLUMNS.includes(c) ? (
+                    <CellValue column={c} value={selected[c]} />
+                  ) : (
+                    formatCell(selected[c])
+                  )}
                 </dd>
               </div>
             ))}
@@ -482,7 +568,7 @@ function AddFilter({ columns, onAdd }: { columns: string[]; onAdd: (f: RowFilter
   const [operator, setOperator] = useState("contains");
   const [value, setValue] = useState("");
   const col = column || columns.find((c) => c !== "timestamp") || "";
-  const isTime = col === "timestamp";
+  const isTime = TIME_COLUMNS.includes(col);
   const ops = OPERATORS.filter((o) => (isTime ? ["gte", "lte", "empty", "not_empty"].includes(o.value) : !["gte", "lte"].includes(o.value)));
   const op = ops.some((o) => o.value === operator) ? operator : ops[0].value;
   const noValue = OPERATORS.find((o) => o.value === op)?.noValue;

@@ -85,6 +85,35 @@ export interface RawImportInfo {
   columns: string[];
   error: string | null;
   importedAt: string | null;
+  /** Everflow conversion matching; null when the report lacks the column holding the transaction ID. */
+  conversions: {
+    /** The additional data column matched against Everflow transaction IDs. */
+    field: string;
+    /** The most recent conversions export uploaded (for any report). */
+    lastUpload: EverflowUpload | null;
+  } | null;
+}
+
+export interface EverflowUpload {
+  fileName: string | null;
+  conversions: number;
+  firstConversionAt: string | null;
+  lastConversionAt: string | null;
+  uploadedAt: string;
+}
+
+export interface ConversionUploadResult extends EverflowUpload {
+  rows: number;
+  skipped: number;
+  /** Distinct clicks (transaction IDs) in the file. */
+  clicks: number;
+  statuses: Record<string, number>;
+  /** Uploaded clicks found in some imported report. */
+  matchedClicks: number;
+  /** Imported reports holding uploaded clicks. */
+  reports: { reportId: string; name: string | null; start: number | null; end: number | null; rows: number; converted: number }[];
+  /** Rows of the report it was uploaded on that are now marked converted. */
+  reportConverted: number;
 }
 
 export interface RawReportSummary {

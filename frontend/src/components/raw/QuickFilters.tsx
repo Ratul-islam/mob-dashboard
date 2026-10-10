@@ -2,7 +2,7 @@
 
 import { useId, useState } from "react";
 import clsx from "clsx";
-import { AlertTriangle, CheckCircle2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, CircleDollarSign, type LucideIcon } from "lucide-react";
 import { errorMessage } from "@/lib/api";
 import { formatInt } from "@/lib/format";
 import { useDebounced } from "@/lib/useDebounced";
@@ -27,10 +27,18 @@ const withPick = (filters: RowFilter[], column: string, value: string): RowFilte
 
 const without = (filters: RowFilter[], ...columns: string[]) => filters.filter((f) => !columns.includes(f.column));
 
-const RESULT_OPTIONS = [
+type SegmentOption = { value: string; label: string; icon?: LucideIcon; swatch?: string };
+
+const RESULT_OPTIONS: SegmentOption[] = [
   { value: "", label: "All" },
   { value: "suspect", label: "Suspect", icon: AlertTriangle, swatch: "var(--series-2)" },
   { value: "non-suspect", label: "Non-suspect", icon: CheckCircle2, swatch: "var(--series-1)" },
+];
+
+const CONVERSION_OPTIONS: SegmentOption[] = [
+  { value: "", label: "All" },
+  { value: "true", label: "Converted", icon: CircleDollarSign, swatch: "var(--good)" },
+  { value: "false", label: "Not converted" },
 ];
 
 /**
@@ -58,7 +66,9 @@ export function QuickFilters({
   const hasSource = columns.includes("source");
   const hasCampaign = columns.includes("campaign");
   const hasResult = columns.includes("result");
+  const hasConverted = columns.includes("converted");
   const result = pickedValue(filters, "result");
+  const converted = pickedValue(filters, "converted");
   const source = pickedValue(filters, "source");
   const campaign = pickedValue(filters, "campaign");
 
@@ -89,7 +99,7 @@ export function QuickFilters({
 
   const otherSources = lookup && lookup.campaign === campaign ? lookup.sources.filter((s) => s.value !== source) : [];
 
-  if (!hasSource && !hasCampaign && !hasResult) return null;
+  if (!hasSource && !hasCampaign && !hasResult && !hasConverted) return null;
 
   return (
     <div className="flex flex-wrap items-start gap-3">
@@ -145,38 +155,64 @@ export function QuickFilters({
         </div>
       )}
       {hasResult && (
-        <div className="flex flex-col gap-1">
-          <span id={`${campaignId}-result`} className="text-[13px] font-medium text-ink-2">
-            Result
-          </span>
-          <div
-            role="radiogroup"
-            aria-labelledby={`${campaignId}-result`}
-            className="inline-flex h-9 rounded-lg border border-line-strong bg-surface p-0.5"
-          >
-            {RESULT_OPTIONS.map((o) => {
-              // Several facet picks (e.g. both results) read as "All" here.
-              const checked = o.value ? result === o.value : !result || result.includes(",");
-              return (
-                <button
-                  key={o.label}
-                  type="button"
-                  role="radio"
-                  aria-checked={checked}
-                  onClick={() => onFiltersChange(withPick(filters, "result", o.value))}
-                  className={clsx(
-                    "inline-flex items-center gap-1.5 rounded-md px-3 text-sm whitespace-nowrap transition",
-                    checked ? "bg-accent-soft font-medium text-accent" : "text-ink-2 hover:bg-surface-2 hover:text-ink",
-                  )}
-                >
-                  {o.icon && <o.icon className="size-3.5" style={{ color: o.swatch }} aria-hidden />}
-                  {o.label}
-                </button>
-              );
-            })}
-          </div>
-        </div>
+        <Segmented
+          label="Result"
+          options={RESULT_OPTIONS}
+          value={result}
+          onChange={(value) => onFiltersChange(withPick(filters, "result", value))}
+        />
       )}
+      {hasConverted && (
+        <Segmented
+          label="Conversion"
+          options={CONVERSION_OPTIONS}
+          value={converted}
+          onChange={(value) => onFiltersChange(withPick(filters, "converted", value))}
+        />
+      )}
+    </div>
+  );
+}
+
+function Segmented({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string;
+  options: SegmentOption[];
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const labelId = useId();
+  return (
+    <div className="flex flex-col gap-1">
+      <span id={labelId} className="text-[13px] font-medium text-ink-2">
+        {label}
+      </span>
+      <div role="radiogroup" aria-labelledby={labelId} className="inline-flex h-9 rounded-lg border border-line-strong bg-surface p-0.5">
+        {options.map((o) => {
+          // Several facet picks (e.g. both results) read as "All" here.
+          const checked = o.value ? value === o.value : !value || value.includes(",");
+          return (
+            <button
+              key={o.label}
+              type="button"
+              role="radio"
+              aria-checked={checked}
+              onClick={() => onChange(o.value)}
+              className={clsx(
+                "inline-flex items-center gap-1.5 rounded-md px-3 text-sm whitespace-nowrap transition",
+                checked ? "bg-accent-soft font-medium text-accent" : "text-ink-2 hover:bg-surface-2 hover:text-ink",
+              )}
+            >
+              {o.icon && <o.icon className="size-3.5" style={{ color: o.swatch }} aria-hidden />}
+              {o.label}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

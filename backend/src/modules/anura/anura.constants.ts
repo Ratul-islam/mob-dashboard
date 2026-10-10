@@ -71,6 +71,8 @@ export const RAW_FILTER_OPERATORS = [
 /** Columns that get a value breakdown (facet) in the raw rows view. */
 export const RAW_FACET_COLUMNS = [
   "result",
+  "converted",
+  "conversion_status",
   "invalid_traffic_type",
   "rule_sets",
   "source",

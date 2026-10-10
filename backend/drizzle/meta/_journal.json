@@ -8,6 +8,34 @@
       "when": 1790362692914,
       "tag": "0000_init",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1790763231085,
+      "tag": "0001_everflow_conversions",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1790764249162,
+      "tag": "0002_everflow_webhook",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1791286496398,
+      "tag": "0003_everflow_csv_upload",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1791287500940,
+      "tag": "0004_everflow_affiliate",
+      "breakpoints": true
     }
   ]
 }

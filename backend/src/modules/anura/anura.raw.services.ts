@@ -24,6 +24,8 @@ import type { MySqlColumn } from "drizzle-orm/mysql-core";
 import { db } from "../../config/db.js";
 import { getConfig } from "../../config/config.js";
 import { AppError } from "../../utils/AppError.js";
+import { everflowTransactions } from "../everflow/everflow.model.js";
+import { importConversionsCsv, latestUpload } from "../everflow/everflow.services.js";
 import { anuraRequest } from "./anura.client.js";
 import { DIRECT_RAW_COLUMNS, LIMITS, RAW_FACET_COLUMNS } from "./anura.constants.js";
 import { addDays, assertRange, toAnuraDate, todayUtc } from "./anura.services.js";
@@ -35,8 +37,56 @@ import { rawImports, RawImportRow, RawRowColumn, rawRows } from "./rawData.model
  * -------------------------------------------------------------------------------------------- */
 
 const { id: _id, reportId: _reportId, ...dataColumns } = getTableColumns(rawRows);
-const COLUMNS = dataColumns as Record<RawRowColumn, MySqlColumn>;
-const isKnownColumn = (key: string): key is RawRowColumn => key in COLUMNS;
+const RAW_COLUMNS = dataColumns as Record<RawRowColumn, MySqlColumn>;
+const isRawColumn = (key: string): key is RawRowColumn => Object.hasOwn(RAW_COLUMNS, key);
+
+/**
+ * Virtual columns joined from uploaded Everflow conversions on the additional data field that
+ * carries the transaction ID. They behave like any other column for filtering, sorting and facets.
+ */
+const CONVERSION_COLUMNS = {
+  // Has an approved or pending conversion; rows whose conversions were all rejected count as not converted.
+  converted: sql<boolean>`(COALESCE(${everflowTransactions.conversions} + ${everflowTransactions.events}, 0) > 0)`.mapWith(
+    (v) => v === true || Number(v) === 1,
+  ),
+  conversion_status: everflowTransactions.status,
+  conversion_event: everflowTransactions.eventNames,
+  conversion_revenue: everflowTransactions.revenue,
+  conversion_payout: everflowTransactions.payout,
+  converted_at: everflowTransactions.firstConversionAt,
+  conversion_offer: everflowTransactions.offer,
+  conversion_affiliate: everflowTransactions.affiliate,
+};
+type ConversionColumn = keyof typeof CONVERSION_COLUMNS;
+const CONVERSION_KEYS = Object.keys(CONVERSION_COLUMNS) as ConversionColumn[];
+
+type RowColumn = RawRowColumn | ConversionColumn;
+// Drizzle's operators accept a column or an SQL expression, but not a union of the two.
+const COLUMNS = { ...RAW_COLUMNS, ...CONVERSION_COLUMNS } as unknown as Record<RowColumn, MySqlColumn>;
+const isKnownColumn = (key: string): key is RowColumn => Object.hasOwn(COLUMNS, key);
+const NON_TEXT_COLUMNS = new Set<string>([
+  "timestamp",
+  "mobile",
+  "converted",
+  "converted_at",
+  "conversion_revenue",
+  "conversion_payout",
+]);
+
+const transactionColumn = (): RawRowColumn => {
+  const field = getConfig().EVERFLOW_TRANSACTION_FIELD;
+  return `additional_data_${String(Number.isInteger(field) && field >= 1 && field <= 10 ? field : 2).padStart(2, "0")}` as RawRowColumn;
+};
+const conversionJoin = () => eq(everflowTransactions.transactionId, RAW_COLUMNS[transactionColumn()]);
+
+const conversionsEnabled = (columns: string[]) => columns.includes(transactionColumn());
+
+/** The report's imported columns plus the Everflow ones (placed after "result") when available. */
+const withConversionColumns = (columns: string[]): string[] => {
+  if (!conversionsEnabled(columns)) return columns;
+  const at = columns.indexOf("result") + 1 || columns.length;
+  return [...columns.slice(0, at), ...CONVERSION_KEYS, ...columns.slice(at)];
+};
 
 // A stuck import (e.g. the server restarted mid import) may be retried after this long.
 const STALE_IMPORT_MS = 30 * 60_000;
@@ -49,7 +99,7 @@ const formatImport = (i: RawImportRow | undefined | null) =>
     ? {
         status: i.status,
         rows: i.rows,
-        columns: i.columns ?? [],
+        columns: withConversionColumns(i.columns ?? []),
         error: i.error ?? null,
         importedAt: i.importedAt ?? null,
       }
@@ -88,7 +138,66 @@ export const listRawReports = async (o: { page?: number; limit?: number; search?
 
 export const getRawReport = async (id: string) => {
   const report = await anuraRequest("/raw/report", { raw: id }, { ttlMs: 0 });
-  return { ...report, autoImport: pendingAutoImports.has(id), import: formatImport(await getImport(id)) };
+  const imp = await getImport(id);
+  const info = formatImport(imp);
+  return {
+    ...report,
+    autoImport: pendingAutoImports.has(id),
+    import: info && {
+      ...info,
+      // Conversions are uploaded once for all reports; null when rows can't be matched to them.
+      conversions:
+        imp?.status === "ready" && conversionsEnabled(imp.columns ?? [])
+          ? { field: transactionColumn(), lastUpload: await latestUpload() }
+          : null,
+    },
+  };
+};
+
+/**
+ * Stores an uploaded Everflow conversions export. Conversions apply to every report; the response
+ * also counts how many of this report's rows are now marked converted.
+ */
+export const uploadReportConversions = async (reportId: string, body: Buffer, fileName: string | undefined, userId: number) => {
+  const imp = await getReadyImport(reportId);
+  if (!conversionsEnabled(imp.columns)) {
+    throw new AppError(`This report has no ${transactionColumn()} column holding the Everflow transaction ID`, 400);
+  }
+  // The database clock stamps the clicks this upload touches (everflow_transactions.synced_at).
+  const [[{ since }]] = (await db.execute(sql`SELECT UTC_TIMESTAMP() AS since`)) as unknown as [[{ since: string }]];
+  const touched = sql`${everflowTransactions.syncedAt} >= ${since}`;
+  const upload = await importConversionsCsv(body, fileName, userId);
+
+  // Where the uploaded clicks landed, across every imported report.
+  const matches = await db
+    .select({
+      reportId: rawRows.reportId,
+      name: rawImports.name,
+      start: rawImports.start,
+      end: rawImports.end,
+      rows: count(),
+      converted: sql<string>`SUM(${CONVERSION_COLUMNS.converted})`,
+    })
+    .from(rawRows)
+    .innerJoin(everflowTransactions, conversionJoin())
+    .innerJoin(rawImports, eq(rawImports.reportId, rawRows.reportId))
+    .where(touched)
+    .groupBy(rawRows.reportId, rawImports.name, rawImports.start, rawImports.end);
+  const reports = matches.map((m) => ({ ...m, converted: Number(m.converted) }));
+
+  const [{ clicks }] = await db
+    .select({ clicks: sql<string>`COUNT(DISTINCT ${rawRows[transactionColumn()]})` })
+    .from(rawRows)
+    .innerJoin(everflowTransactions, conversionJoin())
+    .where(touched);
+
+  return {
+    ...upload,
+    // Uploaded clicks found in some imported report; the rest need a report covering their dates.
+    matchedClicks: Number(clicks),
+    reports,
+    reportConverted: reports.find((r) => r.reportId === reportId)?.converted ?? 0,
+  };
 };
 
 export type RawFilter = { column: string; operator: string; value?: string };
@@ -119,7 +228,11 @@ export const requestRawReport = async (input: {
       start: toAnuraDate(input.start),
       end: toAnuraDate(input.end),
       standard: input.standard?.length ? input.standard : [...DIRECT_RAW_COLUMNS],
-      additional: input.additional?.length ? input.additional : undefined,
+      // No list means every additional field. A picked list always gets the field carrying the
+      // Everflow transaction ID too, so rows can be matched to conversions.
+      additional: input.additional?.length
+        ? [...new Set([...input.additional, Number(transactionColumn().slice(-2))])].sort((a, b) => a - b)
+        : undefined,
       filters: input.filters?.length
         ? input.filters.map((f) =>
             f.operator === "empty" || f.operator === "not_empty" ? { column: f.column, operator: f.operator } : f,
@@ -211,7 +324,7 @@ const convertValue = (key: RawRowColumn, value: string | undefined): unknown => 
     const v = value.toLowerCase();
     return v === "true" || v === "1" ? true : v === "false" || v === "0" ? false : null;
   }
-  const max = (COLUMNS[key] as { length?: number }).length;
+  const max = (RAW_COLUMNS[key] as { length?: number }).length;
   return max && value.length > max ? value.slice(0, max) : value;
 };
 
@@ -257,7 +370,7 @@ const runImport = async (reportId: string) => {
       // Unknown headers are skipped rather than failing the import.
       columns = record.map((h) => {
         const key = headerToKey(h);
-        return isKnownColumn(key) ? key : null;
+        return isRawColumn(key) ? key : null;
       });
       continue;
     }
@@ -337,9 +450,14 @@ export type RowQuery = {
 
 const escapeLike = (s: string) => s.replace(/[\\%_]/g, (c) => `\\${c}`);
 
-const coerce = (column: RawRowColumn, value: string): any => {
-  if (column === "mobile") return value === "true";
-  if (column === "timestamp") {
+const coerce = (column: RowColumn, value: string): any => {
+  if (column === "mobile" || column === "converted") return value === "true";
+  if (column === "conversion_revenue" || column === "conversion_payout") {
+    const n = Number(value);
+    if (Number.isNaN(n)) throw new AppError(`Invalid number: ${value}`, 400);
+    return n;
+  }
+  if (column === "timestamp" || column === "converted_at") {
     const d = new Date(value);
     if (Number.isNaN(d.getTime())) throw new AppError(`Invalid date: ${value}`, 400);
     return d;
@@ -357,7 +475,7 @@ const buildRowWhere = (reportId: string, columns: string[], query: Pick<RowQuery
     const col = COLUMNS[key];
     const values = (Array.isArray(f.value) ? f.value : [f.value ?? ""]).map(String);
     const v = values[0];
-    const textual = key !== "mobile" && key !== "timestamp";
+    const textual = !NON_TEXT_COLUMNS.has(key);
 
     switch (f.operator) {
       case "in":
@@ -404,7 +522,7 @@ const buildRowWhere = (reportId: string, columns: string[], query: Pick<RowQuery
   const q = query.q?.trim();
   if (q) {
     const pattern = `%${escapeLike(q)}%`;
-    const searchable = columns.filter((c): c is RawRowColumn => isKnownColumn(c) && c !== "timestamp" && c !== "mobile");
+    const searchable = columns.filter((c): c is RowColumn => isKnownColumn(c) && !NON_TEXT_COLUMNS.has(c));
     conditions.push(or(...searchable.map((c) => like(COLUMNS[c], pattern))));
   }
 
@@ -415,7 +533,7 @@ const getReadyImport = async (reportId: string) => {
   const imp = await getImport(reportId);
   if (!imp) throw new AppError("This report has not been imported yet", 404);
   if (imp.status !== "ready") throw new AppError(`Import is ${imp.status}`, 409);
-  return { ...imp, columns: imp.columns ?? [] };
+  return { ...imp, columns: withConversionColumns(imp.columns ?? []) };
 };
 
 export const queryRawRows = async (reportId: string, query: RowQuery) => {
@@ -427,13 +545,14 @@ export const queryRawRows = async (reportId: string, query: RowQuery) => {
 
   const [rows, [{ n }]] = await Promise.all([
     db
-      .select({ id: rawRows.id, ...dataColumns })
+      .select({ id: rawRows.id, ...dataColumns, ...CONVERSION_COLUMNS })
       .from(rawRows)
+      .leftJoin(everflowTransactions, conversionJoin())
       .where(where)
       .orderBy(direction(COLUMNS[sortKey]), asc(rawRows.id))
       .limit(query.limit)
       .offset((query.page - 1) * query.limit),
-    db.select({ n: count() }).from(rawRows).where(where),
+    db.select({ n: count() }).from(rawRows).leftJoin(everflowTransactions, conversionJoin()).where(where),
   ]);
 
   // Only return the columns this report actually has.
@@ -466,6 +585,7 @@ export const getRawValues = async (
   const rows = await db
     .select({ value: col, count: count() })
     .from(rawRows)
+    .leftJoin(everflowTransactions, conversionJoin())
     .where(
       and(
         buildRowWhere(reportId, imp.columns, { filters: query.filters }),
@@ -484,19 +604,20 @@ export const getRawValues = async (
 export const getRawFacets = async (reportId: string, query: Pick<RowQuery, "q" | "filters">) => {
   const imp = await getReadyImport(reportId);
   const where = buildRowWhere(reportId, imp.columns, query);
-  const facetColumns = RAW_FACET_COLUMNS.filter((c): c is RawRowColumn => imp.columns.includes(c) && isKnownColumn(c));
+  const facetColumns = RAW_FACET_COLUMNS.filter((c): c is RowColumn => imp.columns.includes(c) && isKnownColumn(c));
 
-  const facetQuery = (key: RawRowColumn, limit: number) =>
+  const facetQuery = (key: RowColumn, limit: number) =>
     db
       .select({ value: COLUMNS[key], count: count() })
       .from(rawRows)
+      .leftJoin(everflowTransactions, conversionJoin())
       .where(where)
       .groupBy(COLUMNS[key])
       .orderBy(desc(count()))
       .limit(limit);
 
   const [[{ n }], timeline, ...facetResults] = await Promise.all([
-    db.select({ n: count() }).from(rawRows).where(where),
+    db.select({ n: count() }).from(rawRows).leftJoin(everflowTransactions, conversionJoin()).where(where),
     imp.columns.includes("timestamp")
       ? db
           .select({
@@ -505,6 +626,7 @@ export const getRawFacets = async (reportId: string, query: Pick<RowQuery, "q" |
             suspect: sql<string>`SUM(${rawRows.result} = 'suspect')`,
           })
           .from(rawRows)
+          .leftJoin(everflowTransactions, conversionJoin())
           .where(and(where, isNotNull(rawRows.timestamp)))
           .groupBy(sql`hour`)
           .orderBy(sql`hour`)

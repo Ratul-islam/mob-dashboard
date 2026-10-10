@@ -50,6 +50,12 @@ const loadConfig = () => {
     // "auto" tries JSON first, then form encoding, and remembers whichever Anura accepts.
     ANURA_BODY_FORMAT: optional("ANURA_BODY_FORMAT", "auto") as "auto" | "json" | "form",
     ANURA_CACHE_TTL_SECONDS: Number(optional("ANURA_CACHE_TTL_SECONDS", "15")),
+
+    // The Anura additional data field (1-10) that carries the Everflow transaction ID, used to
+    // match raw rows to uploaded Everflow conversions.
+    EVERFLOW_TRANSACTION_FIELD: Number(optional("EVERFLOW_TRANSACTION_FIELD", "2")),
+    // Time zone of Everflow conversion exports (the account's reporting time zone), as an IANA name.
+    EVERFLOW_TIMEZONE: optional("EVERFLOW_TIMEZONE", "America/New_York"),
   };
 };
 

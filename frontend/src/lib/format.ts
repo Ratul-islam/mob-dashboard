@@ -53,6 +53,13 @@ export const humanizeColumn = (key: string) => {
     remote_address: "IP address",
     requesting_remote_address: "Requesting IP",
     requesting_user_agent: "Requesting user agent",
+    conversion_status: "Conversion status",
+    conversion_event: "Conversion event",
+    conversion_revenue: "Conversion revenue",
+    conversion_payout: "Conversion payout",
+    converted_at: "Converted at",
+    conversion_offer: "Offer",
+    conversion_affiliate: "Affiliate",
   };
   if (special[key]) return special[key];
   const words = key.replace(/_/g, " ");

@@ -1,5 +1,6 @@
 import { FastifyReply, FastifyRequest } from "fastify";
 import { getConfig } from "../../config/config.js";
+import { AppError } from "../../utils/AppError.js";
 import { sendSuccess } from "../../utils/responses.js";
 import {
   DIRECT_RAW_COLUMNS,
@@ -32,6 +33,7 @@ import {
   requestRawReport,
   RowQuery,
   startRawImport,
+  uploadReportConversions,
   watchAndImport,
 } from "./anura.raw.services.js";
 
@@ -132,6 +134,14 @@ export const rawRemove = async (request: FastifyRequest, reply: FastifyReply) =>
 export const rawImport = async (request: FastifyRequest, reply: FastifyReply) => {
   const data = await startRawImport((request.params as RawParams).id, Number(request.authUser!.id));
   return sendSuccess(reply, { statusCode: 202, message: "Import started", data });
+};
+
+export const rawUploadConversions = async (request: FastifyRequest, reply: FastifyReply) => {
+  const { id } = request.params as RawParams;
+  const { name } = request.query as { name?: string };
+  if (!Buffer.isBuffer(request.body) || !request.body.length) throw new AppError("Upload an Everflow conversions CSV", 400);
+  const data = await uploadReportConversions(id, request.body, name, Number(request.authUser!.id));
+  return sendSuccess(reply, { message: "Conversions uploaded", data });
 };
 
 export const rawDeleteImport = async (request: FastifyRequest, reply: FastifyReply) => {

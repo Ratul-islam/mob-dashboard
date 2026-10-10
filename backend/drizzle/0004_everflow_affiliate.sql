@@ -1,0 +1,1 @@
+ALTER TABLE `everflow_transactions` ADD `affiliate` varchar(255);
