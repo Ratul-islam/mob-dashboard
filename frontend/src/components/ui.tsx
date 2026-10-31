@@ -73,22 +73,25 @@ export function IconButton({
 /* ---------------------------------------------------------------- Form controls */
 
 const controlBase =
-  "h-9 w-full rounded-lg border border-line-strong bg-surface px-3 text-sm text-ink placeholder:text-muted " +
+  "w-full rounded-lg border border-line-strong bg-surface px-3 text-ink placeholder:text-muted " +
   "focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent-soft disabled:opacity-60";
 
-export const Input = forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(function Input(
-  { className, ...props },
-  ref,
-) {
-  return <input ref={ref} className={clsx(controlBase, className)} {...props} />;
+// Heights match Button's sizes. Pass `size` rather than h-* classes, which can't override these.
+const controlSizes: Record<ButtonSize, string> = { sm: "h-8 text-[13px]", md: "h-9 text-sm" };
+
+export const Input = forwardRef<
+  HTMLInputElement,
+  Omit<React.InputHTMLAttributes<HTMLInputElement>, "size"> & { size?: ButtonSize }
+>(function Input({ className, size = "md", ...props }, ref) {
+  return <input ref={ref} className={clsx(controlBase, controlSizes[size], className)} {...props} />;
 });
 
-export const Select = forwardRef<HTMLSelectElement, React.SelectHTMLAttributes<HTMLSelectElement>>(function Select(
-  { className, children, ...props },
-  ref,
-) {
+export const Select = forwardRef<
+  HTMLSelectElement,
+  Omit<React.SelectHTMLAttributes<HTMLSelectElement>, "size"> & { size?: ButtonSize }
+>(function Select({ className, children, size = "md", ...props }, ref) {
   return (
-    <select ref={ref} className={clsx(controlBase, "pr-8", className)} {...props}>
+    <select ref={ref} className={clsx(controlBase, controlSizes[size], "pr-8", className)} {...props}>
       {children}
     </select>
   );

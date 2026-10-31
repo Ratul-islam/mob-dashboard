@@ -1,8 +1,8 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import clsx from "clsx";
-import { AlertTriangle, CheckCircle2, CircleDollarSign, type LucideIcon } from "lucide-react";
+import { AlertTriangle, Check, CheckCircle2, ChevronDown, CircleDollarSign, type LucideIcon } from "lucide-react";
 import { errorMessage } from "@/lib/api";
 import { formatInt } from "@/lib/format";
 import { useDebounced } from "@/lib/useDebounced";
@@ -37,12 +37,13 @@ const RESULT_OPTIONS: SegmentOption[] = [
 
 const CONVERSION_OPTIONS: SegmentOption[] = [
   { value: "", label: "All" },
-  { value: "true", label: "Converted", icon: CircleDollarSign, swatch: "var(--good)" },
-  { value: "false", label: "Not converted" },
+  { value: "true", label: "Yes", icon: CircleDollarSign, swatch: "var(--good)" },
+  { value: "false", label: "No" },
 ];
 
 /**
- * Source and campaign pickers for an imported raw report. Picking a campaign without a source
+ * Source, campaign, result and conversion pickers for an imported raw report. Renders its controls
+ * without a wrapper so they share the caller's toolbar row. Picking a campaign without a source
  * also picks the source that sent most of that campaign's rows.
  */
 export function QuickFilters({
@@ -56,8 +57,6 @@ export function QuickFilters({
   filters: RowFilter[];
   onFiltersChange: (filters: RowFilter[]) => void;
 }) {
-  const sourceId = useId();
-  const campaignId = useId();
   const [sourceSearch, setSourceSearch] = useState("");
   const [campaignSearch, setCampaignSearch] = useState("");
   const [lookup, setLookup] = useState<{ campaign: string; sources: ValueCount[] } | null>(null);
@@ -102,60 +101,35 @@ export function QuickFilters({
   if (!hasSource && !hasCampaign && !hasResult && !hasConverted) return null;
 
   return (
-    <div className="flex flex-wrap items-start gap-3">
+    <>
       {hasSource && (
-        <div className="flex w-52 flex-col gap-1">
-          <label htmlFor={sourceId} className="text-[13px] font-medium text-ink-2">
-            Source
-          </label>
-          <Combobox
-            id={sourceId}
-            value={source}
-            onChange={setSource}
-            options={sources.data ?? []}
-            onSearch={setSourceSearch}
-            placeholder={`All sources${sources.data && !sourceSearch ? ` (${sources.data.length})` : ""}`}
-            loading={sources.isFetching}
-          />
-        </div>
+        <Combobox
+          className="w-40"
+          size="sm"
+          label="Source"
+          value={source}
+          onChange={setSource}
+          options={sources.data ?? []}
+          onSearch={setSourceSearch}
+          placeholder={`All${sources.data && !sourceSearch ? ` (${sources.data.length})` : ""}`}
+          loading={sources.isFetching}
+        />
       )}
       {hasCampaign && (
-        <div className="flex w-52 flex-col gap-1">
-          <label htmlFor={campaignId} className="text-[13px] font-medium text-ink-2">
-            Campaign
-          </label>
-          <Combobox
-            id={campaignId}
-            value={campaign}
-            onChange={setCampaign}
-            options={campaigns.data ?? []}
-            onSearch={setCampaignSearch}
-            placeholder={`All campaigns${campaigns.data && !campaignSearch ? ` (${campaigns.data.length})` : ""}`}
-            loading={campaigns.isFetching || resolving}
-          />
-          {otherSources.length > 0 && (
-            <p className="text-xs text-muted">
-              Also on source{" "}
-              {otherSources.slice(0, 4).map((s, i) => (
-                <span key={s.value}>
-                  {i > 0 && ", "}
-                  <button
-                    type="button"
-                    className="text-accent hover:underline"
-                    title={`${formatInt(s.count)} rows`}
-                    onClick={() => onFiltersChange(withPick(filters, "source", s.value))}
-                  >
-                    {s.value}
-                  </button>
-                </span>
-              ))}
-              {otherSources.length > 4 && ` +${otherSources.length - 4} more`}
-            </p>
-          )}
-        </div>
+        <Combobox
+          className="w-44"
+          size="sm"
+          label="Campaign"
+          value={campaign}
+          onChange={setCampaign}
+          options={campaigns.data ?? []}
+          onSearch={setCampaignSearch}
+          placeholder={`All${campaigns.data && !campaignSearch ? ` (${campaigns.data.length})` : ""}`}
+          loading={campaigns.isFetching || resolving}
+        />
       )}
       {hasResult && (
-        <Segmented
+        <PickMenu
           label="Result"
           options={RESULT_OPTIONS}
           value={result}
@@ -163,18 +137,39 @@ export function QuickFilters({
         />
       )}
       {hasConverted && (
-        <Segmented
-          label="Conversion"
+        <PickMenu
+          label="Converted"
           options={CONVERSION_OPTIONS}
           value={converted}
           onChange={(value) => onFiltersChange(withPick(filters, "converted", value))}
         />
       )}
-    </div>
+      {otherSources.length > 0 && (
+        // Own line at the end of the row, so it doesn't push the controls around.
+        <p className="order-last basis-full text-xs text-muted">
+          Campaign {campaign} also runs on source{" "}
+          {otherSources.slice(0, 4).map((s, i) => (
+            <span key={s.value}>
+              {i > 0 && ", "}
+              <button
+                type="button"
+                className="text-accent hover:underline"
+                title={`${formatInt(s.count)} rows`}
+                onClick={() => onFiltersChange(withPick(filters, "source", s.value))}
+              >
+                {s.value}
+              </button>
+            </span>
+          ))}
+          {otherSources.length > 4 && ` +${otherSources.length - 4} more`}
+        </p>
+      )}
+    </>
   );
 }
 
-function Segmented({
+/** A compact dropdown with its label inside the trigger, tinted while something is picked. */
+function PickMenu({
   label,
   options,
   value,
@@ -185,34 +180,106 @@ function Segmented({
   value: string;
   onChange: (value: string) => void;
 }) {
-  const labelId = useId();
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
+  // Several facet picks (e.g. both results) match no option, so show them as they are.
+  const shown = options.find((o) => o.value === value) ?? (value ? { value, label: value } : options[0]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (!root.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    // Start keyboard users on the current choice.
+    const current = menu.current?.querySelector<HTMLElement>('[aria-checked="true"]') ?? menu.current?.querySelector<HTMLElement>("button");
+    current?.focus();
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  const close = () => {
+    setOpen(false);
+    trigger.current?.focus();
+  };
+
+  const onMenuKeyDown = (e: React.KeyboardEvent) => {
+    const items = [...(menu.current?.querySelectorAll<HTMLElement>("button") ?? [])];
+    const i = items.indexOf(document.activeElement as HTMLElement);
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      items[(i + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length]?.focus();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      close();
+    } else if (e.key === "Tab") {
+      setOpen(false);
+    }
+  };
+
   return (
-    <div className="flex flex-col gap-1">
-      <span id={labelId} className="text-[13px] font-medium text-ink-2">
-        {label}
-      </span>
-      <div role="radiogroup" aria-labelledby={labelId} className="inline-flex h-9 rounded-lg border border-line-strong bg-surface p-0.5">
-        {options.map((o) => {
-          // Several facet picks (e.g. both results) read as "All" here.
-          const checked = o.value ? value === o.value : !value || value.includes(",");
-          return (
-            <button
-              key={o.label}
-              type="button"
-              role="radio"
-              aria-checked={checked}
-              onClick={() => onChange(o.value)}
-              className={clsx(
-                "inline-flex items-center gap-1.5 rounded-md px-3 text-sm whitespace-nowrap transition",
-                checked ? "bg-accent-soft font-medium text-accent" : "text-ink-2 hover:bg-surface-2 hover:text-ink",
-              )}
-            >
-              {o.icon && <o.icon className="size-3.5" style={{ color: o.swatch }} aria-hidden />}
-              {o.label}
-            </button>
-          );
-        })}
-      </div>
+    <div ref={root} className="relative shrink-0">
+      <button
+        ref={trigger}
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowDown") {
+            e.preventDefault();
+            setOpen(true);
+          }
+        }}
+        className={clsx(
+          "flex h-8 items-center gap-1.5 rounded-lg border pr-2 pl-2.5 text-[13px] whitespace-nowrap transition",
+          "focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent-soft focus-visible:outline-none",
+          value ? "border-accent bg-accent-soft" : "border-line-strong bg-surface hover:bg-surface-2",
+        )}
+      >
+        <span className={clsx("text-xs font-medium", value ? "text-accent" : "text-muted")}>{label}</span>
+        {shown.icon && <shown.icon className="size-3.5 shrink-0" style={{ color: shown.swatch }} aria-hidden />}
+        <span className={value ? "text-ink" : "text-ink-2"}>{shown.label}</span>
+        <ChevronDown className={clsx("size-3.5 shrink-0 text-muted transition-transform", open && "rotate-180")} aria-hidden />
+      </button>
+
+      {open && (
+        <div
+          ref={menu}
+          role="menu"
+          aria-label={label}
+          onKeyDown={onMenuKeyDown}
+          className="absolute top-full left-0 z-30 mt-1 w-max min-w-full rounded-lg border border-line bg-surface p-1 shadow-xl"
+        >
+          {options.map((o) => {
+            const checked = o.value ? value === o.value : !value;
+            return (
+              <button
+                key={o.label}
+                type="button"
+                role="menuitemradio"
+                aria-checked={checked}
+                onClick={() => {
+                  onChange(o.value);
+                  close();
+                }}
+                className={clsx(
+                  "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm whitespace-nowrap outline-none",
+                  "hover:bg-surface-2 focus-visible:bg-accent-soft focus-visible:text-accent",
+                  checked && "font-medium",
+                )}
+              >
+                <span className="flex size-3.5 shrink-0 items-center justify-center">
+                  {o.icon && <o.icon className="size-3.5" style={{ color: o.swatch }} aria-hidden />}
+                </span>
+                <span className="flex-1">{o.label}</span>
+                <Check className={clsx("size-3.5 shrink-0 text-accent", !checked && "invisible")} aria-hidden />
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

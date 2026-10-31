@@ -25,6 +25,8 @@ export function Combobox({
   placeholder,
   loading,
   onSearch,
+  label,
+  size = "md",
   className,
 }: {
   id?: string;
@@ -35,9 +37,14 @@ export function Combobox({
   loading?: boolean;
   /** Called with the typed text, for server-side suggestion lookups. */
   onSearch?: (text: string) => void;
+  /** A short label shown inside the field, before the value; the field is tinted while a value is picked. */
+  label?: string;
+  size?: "sm" | "md";
   className?: string;
 }) {
   const listId = useId();
+  const autoId = useId();
+  const inputId = id ?? autoId;
   const inputRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
   const [text, setText] = useState(value);
@@ -88,38 +95,55 @@ export function Combobox({
 
   return (
     <div className={clsx("relative", className)}>
-      <input
-        ref={inputRef}
-        id={id}
-        role="combobox"
-        aria-expanded={open}
-        aria-controls={listId}
-        aria-autocomplete="list"
-        aria-activedescendant={active >= 0 ? `${listId}-${active}` : undefined}
-        autoComplete="off"
-        value={shown}
-        placeholder={placeholder}
-        onFocus={() => {
-          committed.current = false;
-          setText(value);
-          setEditing(true);
-          setOpen(true);
-        }}
-        onChange={(e) => {
-          committed.current = false;
-          setText(e.target.value);
-          setEditing(true);
-          setOpen(true);
-          setActive(-1);
-          onSearch?.(e.target.value);
-        }}
-        onBlur={() => {
-          if (!committed.current && editing) commit(text);
-          committed.current = false;
-        }}
-        onKeyDown={onKeyDown}
-        className="h-9 w-full rounded-lg border border-line-strong bg-surface pr-14 pl-3 text-sm text-ink placeholder:text-ink-2 focus:border-accent focus:ring-2 focus:ring-accent-soft focus:outline-none"
-      />
+      <div
+        className={clsx(
+          "flex w-full items-center rounded-lg border focus-within:border-accent focus-within:ring-2 focus-within:ring-accent-soft",
+          size === "sm" ? "h-8 text-[13px]" : "h-9 text-sm",
+          label && value ? "border-accent bg-accent-soft" : "border-line-strong bg-surface",
+        )}
+      >
+        {label && (
+          <label htmlFor={inputId} className={clsx("shrink-0 pl-2.5 text-xs font-medium", value ? "text-accent" : "text-muted")}>
+            {label}
+          </label>
+        )}
+        <input
+          ref={inputRef}
+          id={inputId}
+          role="combobox"
+          aria-expanded={open}
+          aria-controls={listId}
+          aria-autocomplete="list"
+          aria-activedescendant={active >= 0 ? `${listId}-${active}` : undefined}
+          autoComplete="off"
+          value={shown}
+          placeholder={placeholder}
+          onFocus={() => {
+            committed.current = false;
+            setText(value);
+            setEditing(true);
+            setOpen(true);
+          }}
+          onChange={(e) => {
+            committed.current = false;
+            setText(e.target.value);
+            setEditing(true);
+            setOpen(true);
+            setActive(-1);
+            onSearch?.(e.target.value);
+          }}
+          onBlur={() => {
+            if (!committed.current && editing) commit(text);
+            committed.current = false;
+          }}
+          onKeyDown={onKeyDown}
+          className={clsx(
+            "h-full w-full min-w-0 rounded-lg bg-transparent text-ink placeholder:text-ink-2 focus:outline-none",
+            label ? "pl-1.5" : "pl-3",
+            size === "sm" ? "pr-12" : "pr-14",
+          )}
+        />
+      </div>
       <div className="absolute inset-y-0 right-1.5 flex items-center gap-0.5">
         {loading && <Spinner className="size-3.5" />}
         {value && !editing ? (

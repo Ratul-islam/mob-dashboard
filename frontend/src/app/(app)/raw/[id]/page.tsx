@@ -344,14 +344,13 @@ export default function RawReportPage() {
               </Card>
             )}
 
-            <Card className="sticky top-[68px] flex max-h-[calc(100dvh-88px)] min-w-0 flex-col lg:top-6 lg:max-h-[calc(100dvh-3rem)]">
-              <div className="shrink-0 px-4 pt-4">
-                <QuickFilters reportId={id} columns={columns} filters={filters} onFiltersChange={setFilters} />
-              </div>
-              <div className="flex shrink-0 flex-wrap items-center gap-2 px-4 pt-3 pb-3">
-                <div className="relative min-w-48 flex-1">
-                  <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted" aria-hidden />
+            <Card className="sticky top-[60px] flex max-h-[calc(100dvh-68px)] min-w-0 flex-col lg:top-3 lg:max-h-[calc(100dvh-1.5rem)]">
+              {/* One row for search, quick filters and table actions; wraps only when the table is narrow. */}
+              <div className="flex shrink-0 flex-wrap items-center gap-2 px-3 py-2">
+                <div className="relative min-w-36 flex-1 basis-44">
+                  <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted" aria-hidden />
                   <Input
+                    size="sm"
                     value={searchInput}
                     onChange={(e) => {
                       setSearchInput(e.target.value);
@@ -359,49 +358,57 @@ export default function RawReportPage() {
                     }}
                     placeholder="Search IP, network, user agent, city, device ID…"
                     aria-label="Search rows"
-                    className="pl-9"
+                    className="pl-8"
                   />
                 </div>
-                <AddFilter columns={columns} onAdd={(f) => setFilters([...filters, f])} />
-                <Popover
-                  trigger={({ toggle, open }) => (
-                    <Button size="md" icon={<Columns3 className="size-4" />} onClick={toggle} className={clsx(open && "bg-surface-2")}>
-                      Columns
-                    </Button>
-                  )}
-                  className="w-64"
-                >
-                  <div className="flex items-center justify-between px-2 pt-1 pb-1.5 text-xs text-muted">
-                    <span className="font-medium">
-                      {visibleColumns.length} of {columns.length} shown
-                    </span>
-                    <span className="flex gap-2">
-                      <button className="text-accent hover:underline" onClick={() => setHidden([])}>
-                        All
-                      </button>
-                      <button className="text-accent hover:underline" onClick={() => setHidden(DEFAULT_HIDDEN)}>
-                        Default
-                      </button>
-                    </span>
-                  </div>
-                  <div className="scroll-thin max-h-80 overflow-y-auto">
-                    {columns.map((c) => (
-                      <Checkbox
-                        key={c}
-                        label={humanizeColumn(c)}
-                        checked={!hidden.includes(c)}
-                        onChange={(on) => setHidden(on ? hidden.filter((h) => h !== c) : [...hidden, c])}
+                <QuickFilters reportId={id} columns={columns} filters={filters} onFiltersChange={setFilters} />
+                <div className="ml-auto flex items-center gap-1">
+                  <AddFilter columns={columns} onAdd={(f) => setFilters([...filters, f])} />
+                  <Popover
+                    trigger={({ toggle, open }) => (
+                      <Button
+                        size="sm"
+                        icon={<Columns3 className="size-4" />}
+                        onClick={toggle}
+                        aria-label={`Columns (${visibleColumns.length} of ${columns.length} shown)`}
+                        title="Show or hide columns"
+                        className={clsx(open && "bg-surface-2")}
                       />
-                    ))}
-                  </div>
-                </Popover>
-                <IconButton label="Download this page as CSV" onClick={exportCsv} disabled={!rows.data?.rows.length}>
-                  <Download className="size-4" />
-                </IconButton>
+                    )}
+                    className="w-64"
+                  >
+                    <div className="flex items-center justify-between px-2 pt-1 pb-1.5 text-xs text-muted">
+                      <span className="font-medium">
+                        {visibleColumns.length} of {columns.length} shown
+                      </span>
+                      <span className="flex gap-2">
+                        <button className="text-accent hover:underline" onClick={() => setHidden([])}>
+                          All
+                        </button>
+                        <button className="text-accent hover:underline" onClick={() => setHidden(DEFAULT_HIDDEN)}>
+                          Default
+                        </button>
+                      </span>
+                    </div>
+                    <div className="scroll-thin max-h-80 overflow-y-auto">
+                      {columns.map((c) => (
+                        <Checkbox
+                          key={c}
+                          label={humanizeColumn(c)}
+                          checked={!hidden.includes(c)}
+                          onChange={(on) => setHidden(on ? hidden.filter((h) => h !== c) : [...hidden, c])}
+                        />
+                      ))}
+                    </div>
+                  </Popover>
+                  <IconButton label="Download this page as CSV" onClick={exportCsv} disabled={!rows.data?.rows.length}>
+                    <Download className="size-4" />
+                  </IconButton>
+                </div>
               </div>
 
               {filters.length > 0 && (
-                <div className="flex shrink-0 flex-wrap items-center gap-1.5 px-4 pb-3">
+                <div className="flex shrink-0 flex-wrap items-center gap-1.5 px-3 pb-2">
                   {filters.map((f, i) => (
                     <span key={i} className="inline-flex items-center gap-1 rounded-full bg-accent-soft py-0.5 pr-1 pl-2.5 text-xs text-accent">
                       {filterLabel(f)}
@@ -438,7 +445,7 @@ export default function RawReportPage() {
                             scope="col"
                             aria-sort={sort.column === c ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}
                             // Pinned while rows scroll; the inset shadows stand in for borders, which don't stick.
-                            className="sticky top-0 z-10 bg-[color-mix(in_srgb,var(--accent)_9%,var(--surface))] px-3 py-2.5 font-semibold whitespace-nowrap text-ink shadow-[inset_0_1px_0_var(--border),inset_0_-1px_0_var(--border)]"
+                            className="sticky top-0 z-10 bg-[color-mix(in_srgb,var(--accent)_9%,var(--surface))] px-3 py-2 font-semibold whitespace-nowrap text-ink shadow-[inset_0_1px_0_var(--border),inset_0_-1px_0_var(--border)]"
                           >
                             <button className={clsx("inline-flex items-center gap-1 hover:text-ink", sort.column === c && "text-ink")} onClick={() => onSort(c)}>
                               {humanizeColumn(c)}
@@ -453,7 +460,7 @@ export default function RawReportPage() {
                       {!rows.data &&
                         Array.from({ length: 8 }, (_, i) => (
                           <tr key={i} className="border-b border-line">
-                            <td colSpan={99} className="px-3 py-2.5">
+                            <td colSpan={99} className="px-3 py-2">
                               <div className="h-3 animate-pulse rounded bg-surface-2" style={{ width: `${80 - i * 6}%` }} />
                             </td>
                           </tr>
@@ -468,7 +475,7 @@ export default function RawReportPage() {
                             <td
                               key={c}
                               className={clsx(
-                                "px-3 py-2.5 whitespace-nowrap",
+                                "px-3 py-1.5 whitespace-nowrap",
                                 /user_agent|additional/.test(c) ? "max-w-80 truncate" : "max-w-56 truncate",
                                 // Result strip: suspect / non-suspect in the chart colors.
                                 i === 0 && row.result === "suspect" && "shadow-[inset_3px_0_0_var(--series-2)]",
@@ -494,7 +501,7 @@ export default function RawReportPage() {
               )}
 
               {pag && (
-                <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-line px-4 py-2.5 text-xs text-muted">
+                <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-line px-4 py-1.5 text-xs text-muted">
                   <span className="tabular">
                     {pag.results ? `${formatInt((pag.page - 1) * pag.limit + 1)}–${formatInt(Math.min(pag.page * pag.limit, pag.results))}` : 0} of{" "}
                     {formatInt(pag.results)}
@@ -576,7 +583,7 @@ function AddFilter({ columns, onAdd }: { columns: string[]; onAdd: (f: RowFilter
   return (
     <Popover
       trigger={({ toggle, open }) => (
-        <Button icon={<Plus className="size-4" />} onClick={toggle} className={clsx(open && "bg-surface-2")}>
+        <Button size="sm" icon={<Plus className="size-4" />} onClick={toggle} className={clsx(open && "bg-surface-2")}>
           Filter
         </Button>
       )}
